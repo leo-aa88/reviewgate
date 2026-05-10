@@ -15,6 +15,8 @@ they land without changing the public signature.
 
 from __future__ import annotations
 
+from pydantic import ValidationError
+
 from .aggregate import baseline_reviewability
 from .categorizer import Categorizer
 from .config import DEFAULT_RISKY_PATHS, ReviewGateConfig
@@ -91,11 +93,14 @@ def _resolve_config(engine_input: EngineInput) -> ReviewGateConfig:
         return ReviewGateConfig()
     try:
         return ReviewGateConfig.model_validate(raw)
-    except Exception:
+    except ValidationError:
         # \u00a712 already specifies that malformed config never crashes the
         # analysis. ``load_config`` is the place that records the
         # accompanying warning on the surrounding pipeline; here we just
-        # ensure the engine keeps running with defaults.
+        # ensure the engine keeps running with defaults. Pydantic wraps
+        # every input-shape failure (non-mapping at the top level,
+        # unknown keys under ``extra='forbid'``, wrong scalar types) in
+        # :class:`ValidationError`, so a narrower except is sufficient.
         return ReviewGateConfig()
 
 

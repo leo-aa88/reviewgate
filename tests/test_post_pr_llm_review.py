@@ -1036,7 +1036,16 @@ def test_filter_general_drops_evidence_too_short() -> None:
 
 
 def test_filter_general_drops_malformed_entries() -> None:
-    """Non-dict entries and wrong-typed fields are demoted, not crashed."""
+    """Non-dict entries and wrong-typed fields are dropped (not crashed) and
+    surface in the ``dropped`` audit list with ``_drop_reason == "malformed"``.
+
+    Distinct from :func:`_split_inline_comments`'s "demoted" path, which
+    moves an inline entry to the rendered review body as a general
+    comment. Here the entry is removed from the rendered review entirely
+    and only appears in the orchestrator's ``::warning::`` log; the
+    docstring used to say "demoted" by accident, which would mislead a
+    future maintainer reading this test about the contract.
+    """
 
     review: ppr.JsonObject = {
         "verdict": "comment",

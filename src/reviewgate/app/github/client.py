@@ -2,9 +2,15 @@
 
 Callers obtain an installation access token via
 :func:`reviewgate.app.github.auth.fetch_installation_access_token`, then pass
-``installation_token`` into the functions in this module. Responses are parsed
-as JSON; HTTP failures raise :class:`GitHubRestError` with a ``retriable`` flag
-for backoff logic.
+``installation_token`` into the functions in this module. For **installation**
+REST calls, GitHub documents sending the token in the ``Authorization`` header
+as ``Bearer <installation_access_token>`` (the same ``Bearer`` prefix used for
+personal access tokens and OAuth user tokens; it is distinct from the
+short-lived **JWT** used only when calling ``/app/*`` installation-token
+exchange endpoints in :mod:`reviewgate.app.github.auth`).
+
+Responses are parsed as JSON; HTTP failures raise :class:`GitHubRestError` with
+a ``retriable`` flag for backoff logic.
 """
 
 from __future__ import annotations

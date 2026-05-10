@@ -24,6 +24,7 @@ def test_fetch_pull_request_returns_json_object() -> None:
 
     def handler(request: httpx.Request) -> httpx.Response:
         calls.append(str(request.url))
+        # Installation access tokens use the same Bearer scheme as PATs (GitHub REST).
         assert request.headers["Authorization"] == "Bearer ghs_installation_token_example"
         assert request.headers["X-GitHub-Api-Version"] == "2022-11-28"
         assert request.url.path.endswith("/repos/acme/r/pulls/7")
@@ -151,3 +152,27 @@ def test_fetch_pull_request_transport_error_is_retriable() -> None:
 def test_fetch_pull_request_rejects_invalid_owner() -> None:
     with pytest.raises(ValueError, match="invalid GitHub owner"):
         fetch_pull_request(_TOKEN, owner="bad/name", repo="r", pull_number=1)
+
+
+def test_fetch_pull_request_files_stops_at_max_page_guard(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Regression: pagination must not run unbounded (issue #40)."""
+
+    import reviewgate.app.github.client as client_mod
+
+    monkeypatch.setattr(client_mod, "_MAX_FILE_PAGES", 2)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=[{"filename": "x.py"} for _ in range(100)])
+
+    transport = httpx.MockTransport(handler)
+    with httpx.Client(transport=transport) as client:
+        with pytest.raises(GitHubRestError, match="pagination exceeded"):
+            fetch_pull_request_files(
+                _TOKEN,
+                owner="o",
+                repo="p",
+                pull_number=1,
+                http_client=client,
+            )

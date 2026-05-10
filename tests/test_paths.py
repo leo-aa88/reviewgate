@@ -233,7 +233,7 @@ def test_test_paths_do_not_match_production_modules() -> None:
 def test_categories_are_disjoint_for_unrelated_paths() -> None:
     """A plain source file should not match any \u00a710.6\u2013\u00a710.9 category."""
 
-    plain = "reviewgate/core/aggregate.py"
+    plain = "src/reviewgate/core/aggregate.py"
     for patterns in (
         DEFAULT_RISKY_PATHS,
         DEFAULT_DEPENDENCY_FILES,

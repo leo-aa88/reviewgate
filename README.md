@@ -479,7 +479,8 @@ pytest
 
 CI runs the same ``pytest`` job on Python **3.12** and **3.13** (see the
 matrix in [`.github/workflows/ci.yml`](.github/workflows/ci.yml)). This repo
-also includes [**`.github/workflows/pr-llm-review.yml`**](.github/workflows/pr-llm-review.yml),
+also includes
+[`pr-llm-review.yml`](https://github.com/leo-aa88/reviewgate/blob/main/.github/workflows/pr-llm-review.yml),
 which can post an LLM-backed PR review when secrets are configured (see the workflow file; fork PRs are skipped).
 
 ---

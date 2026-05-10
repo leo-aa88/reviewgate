@@ -11,6 +11,8 @@ from __future__ import annotations
 import importlib.util
 from pathlib import Path
 
+import reviewgate
+
 
 def test_reviewgate_packages_resolve_through_importlib() -> None:
     """``reviewgate`` and ``reviewgate_action`` must be standard discoverable packages."""
@@ -20,6 +22,13 @@ def test_reviewgate_packages_resolve_through_importlib() -> None:
         assert spec.origin is not None or spec.submodule_search_locations, (
             f"{root} must map to package locations on disk"
         )
+
+
+def test_reviewgate_root_has_py_typed_marker() -> None:
+    """PEP 561: top-level ``reviewgate`` must ship ``py.typed`` for downstream checkers."""
+
+    root = Path(reviewgate.__file__).resolve().parent
+    assert (root / "py.typed").is_file()
 
 
 def test_reviewgate_action_package_dir_exists() -> None:

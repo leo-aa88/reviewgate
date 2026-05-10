@@ -1,8 +1,9 @@
 """FastAPI ASGI application for the hosted ReviewGate GitHub App (§15 / §17.2).
 
 This module defines the production ``app`` object consumed by ASGI servers
-such as uvicorn. It wires the §17.2 health probe and the §17.1 GitHub webhook
-route (issue #33). The webhook installs the Dramatiq Redis broker on demand
+such as uvicorn. It wires the §17.2 health probe, the §17.1 GitHub webhook
+route (issue #33), and the §5.1 ``GET /privacy`` page (issue #37). The webhook
+installs the Dramatiq Redis broker on demand
 when enqueueing (see :mod:`reviewgate.app.analysis.broker_install`).
 
 Example:
@@ -19,6 +20,7 @@ from __future__ import annotations
 
 from fastapi import FastAPI
 
+from reviewgate.app.privacy import router as privacy_router
 from reviewgate.app.webhooks import github_router
 
 
@@ -32,6 +34,7 @@ def create_app() -> FastAPI:
     )
 
     application.include_router(github_router)
+    application.include_router(privacy_router)
 
     @application.get("/health")
     def health() -> dict[str, bool]:

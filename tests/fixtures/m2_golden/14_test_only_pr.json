@@ -1,0 +1,28 @@
+{
+  "pr": {
+    "title": "test: add regression coverage for parser overflow case (closes #1402)",
+    "body": "Adds a regression test for the parser overflow path discovered in #1402. The fix already shipped in #1380; this PR locks in coverage so the bug cannot silently come back. No production code touched.",
+    "author": "octocat",
+    "base_branch": "main",
+    "head_branch": "test/parser-overflow-regression",
+    "additions": 95,
+    "deletions": 0,
+    "changed_files": 2
+  },
+  "files": [
+    {
+      "filename": "tests/test_parser_overflow.py",
+      "status": "added",
+      "additions": 70,
+      "deletions": 0,
+      "changes": 70
+    },
+    {
+      "filename": "tests/conftest.py",
+      "status": "modified",
+      "additions": 25,
+      "deletions": 0,
+      "changes": 25
+    }
+  ]
+}

@@ -1,0 +1,56 @@
+{
+  "pr": {
+    "title": "Refactor SearchIndex to async/await (closes #310)",
+    "body": "Splitting `SearchIndex.process` into async helpers so the worker pool can apply backpressure. No behavior change to the public API; this is a pure refactor of the internal call graph.\n\nFixes #310. Numbers: ~2600 lines added, mostly mechanical method extraction with explicit type annotations on each new private method.",
+    "author": "octocat",
+    "base_branch": "main",
+    "head_branch": "refactor/search-index-async",
+    "additions": 2400,
+    "deletions": 200,
+    "changed_files": 6
+  },
+  "files": [
+    {
+      "filename": "src/search/index.py",
+      "status": "modified",
+      "additions": 1200,
+      "deletions": 100,
+      "changes": 1300
+    },
+    {
+      "filename": "src/search/_helpers.py",
+      "status": "added",
+      "additions": 700,
+      "deletions": 0,
+      "changes": 700
+    },
+    {
+      "filename": "src/search/_pool.py",
+      "status": "added",
+      "additions": 200,
+      "deletions": 0,
+      "changes": 200
+    },
+    {
+      "filename": "src/search/__init__.py",
+      "status": "modified",
+      "additions": 60,
+      "deletions": 20,
+      "changes": 80
+    },
+    {
+      "filename": "tests/test_search_index.py",
+      "status": "modified",
+      "additions": 160,
+      "deletions": 50,
+      "changes": 210
+    },
+    {
+      "filename": "tests/test_search_pool.py",
+      "status": "added",
+      "additions": 80,
+      "deletions": 30,
+      "changes": 110
+    }
+  ]
+}

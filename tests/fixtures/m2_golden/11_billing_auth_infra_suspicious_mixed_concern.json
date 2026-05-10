@@ -1,0 +1,35 @@
+{
+  "pr": {
+    "title": "wip: cleanup",
+    "body": "small cleanup pass",
+    "author": "octocat",
+    "base_branch": "main",
+    "head_branch": "wip/cleanup",
+    "additions": 180,
+    "deletions": 60,
+    "changed_files": 3
+  },
+  "files": [
+    {
+      "filename": "src/billing/invoice.py",
+      "status": "modified",
+      "additions": 60,
+      "deletions": 20,
+      "changes": 80
+    },
+    {
+      "filename": "src/auth/session.py",
+      "status": "modified",
+      "additions": 40,
+      "deletions": 15,
+      "changes": 55
+    },
+    {
+      "filename": "infrastructure/terraform/network.tf",
+      "status": "modified",
+      "additions": 80,
+      "deletions": 25,
+      "changes": 105
+    }
+  ]
+}

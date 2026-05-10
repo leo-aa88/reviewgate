@@ -1,0 +1,42 @@
+{
+  "pr": {
+    "title": "feat(httpx): bump httpx and switch to AsyncClient (closes #905)",
+    "body": "Bumps `httpx` to the latest minor and switches `ApiClient` from the sync `Client` to `AsyncClient` so the worker pool can interleave requests. The dependency bump and the behavior change are kept together because `AsyncClient` requires the new minor.\n\nFixes #905. Manual smoke against staging passes; new test in `tests/test_api_client.py` exercises the async path.",
+    "author": "octocat",
+    "base_branch": "main",
+    "head_branch": "feat/httpx-async",
+    "additions": 95,
+    "deletions": 35,
+    "changed_files": 4
+  },
+  "files": [
+    {
+      "filename": "pyproject.toml",
+      "status": "modified",
+      "additions": 1,
+      "deletions": 1,
+      "changes": 2
+    },
+    {
+      "filename": "uv.lock",
+      "status": "modified",
+      "additions": 24,
+      "deletions": 18,
+      "changes": 42
+    },
+    {
+      "filename": "src/api/client.py",
+      "status": "modified",
+      "additions": 50,
+      "deletions": 12,
+      "changes": 62
+    },
+    {
+      "filename": "tests/test_api_client.py",
+      "status": "modified",
+      "additions": 20,
+      "deletions": 4,
+      "changes": 24
+    }
+  ]
+}

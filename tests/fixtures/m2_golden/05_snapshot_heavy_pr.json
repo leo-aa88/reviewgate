@@ -1,0 +1,35 @@
+{
+  "pr": {
+    "title": "Refresh component snapshots after design-token rename (#618)",
+    "body": "Mechanical snapshot refresh after the design-system rename of the `palette/*` tokens. Snapshot diffs are large but the underlying component code is unchanged. Closes #618.",
+    "author": "octocat",
+    "base_branch": "main",
+    "head_branch": "snapshots/design-token-rename",
+    "additions": 4500,
+    "deletions": 4500,
+    "changed_files": 3
+  },
+  "files": [
+    {
+      "filename": "src/components/Button/__snapshots__/Button.test.tsx.snap",
+      "status": "modified",
+      "additions": 1500,
+      "deletions": 1500,
+      "changes": 3000
+    },
+    {
+      "filename": "src/components/Card/__snapshots__/Card.test.tsx.snap",
+      "status": "modified",
+      "additions": 1500,
+      "deletions": 1500,
+      "changes": 3000
+    },
+    {
+      "filename": "src/components/Modal/Modal.snap",
+      "status": "modified",
+      "additions": 1500,
+      "deletions": 1500,
+      "changes": 3000
+    }
+  ]
+}

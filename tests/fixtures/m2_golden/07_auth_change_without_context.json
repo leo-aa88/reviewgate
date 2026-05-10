@@ -1,0 +1,28 @@
+{
+  "pr": {
+    "title": "wip",
+    "body": "",
+    "author": "octocat",
+    "base_branch": "main",
+    "head_branch": "wip/auth-tweaks",
+    "additions": 60,
+    "deletions": 20,
+    "changed_files": 2
+  },
+  "files": [
+    {
+      "filename": "src/auth/login.py",
+      "status": "modified",
+      "additions": 40,
+      "deletions": 15,
+      "changes": 55
+    },
+    {
+      "filename": "src/auth/session.py",
+      "status": "modified",
+      "additions": 20,
+      "deletions": 5,
+      "changes": 25
+    }
+  ]
+}

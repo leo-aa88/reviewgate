@@ -14,7 +14,7 @@ from __future__ import annotations
 from typing import Final, Literal
 
 import yaml
-from pydantic import Field, ValidationError
+from pydantic import ConfigDict, Field, ValidationError
 
 from reviewgate.core._base import StrictModel
 from reviewgate.core.schemas import EngineWarning
@@ -137,7 +137,22 @@ class Policy(StrictModel):
 
 
 class Labels(StrictModel):
-    """`labels` block (§12, §13.9)."""
+    """`labels` block (§12, §13.9).
+
+    The `pass` key collides with the Python keyword, so it is exposed as
+    `pass_` on the model and aliased to `pass` for YAML/JSON I/O. Strict
+    defaults (`extra="forbid"`, `strict=True`, `str_strip_whitespace=True`)
+    are inherited verbatim from :class:`StrictModel`; only
+    `populate_by_name` is layered on so that Python construction via
+    `Labels(pass_="...")` keeps working alongside the `pass` alias.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+        strict=True,
+        str_strip_whitespace=True,
+        populate_by_name=True,
+    )
 
     pass_: str = Field(
         default="reviewability-pass",
@@ -156,11 +171,6 @@ class Labels(StrictModel):
     needs_split: str = Field(
         default="needs-split", description="Applied when split hints are emitted (§13.9)."
     )
-
-    model_config = {
-        **StrictModel.model_config,
-        "populate_by_name": True,
-    }
 
 
 class StatusCheck(StrictModel):

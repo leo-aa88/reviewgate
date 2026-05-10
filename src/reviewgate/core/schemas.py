@@ -1,11 +1,12 @@
 """Normalized JSON schemas for the deterministic engine.
 
-Covers docs/DESIGN.md ?10.1 (input envelope), ?10.2 (output envelope and
-``split_hints`` items), ?10.5 (per-file ``file_categories`` row), and ?10.12
-(warning objects). The typed ``.reviewgate.yml`` configuration model lives in
+Covers docs/DESIGN.md \u00a710.1 (input envelope), \u00a710.2 (output
+envelope and ``split_hints`` items), \u00a710.5 (per-file
+``file_categories`` row), and \u00a710.12 (warning objects). The typed
+``.reviewgate.yml`` configuration model lives in
 :mod:`reviewgate.core.config`; ``EngineInput.config`` here remains a
-JSON-shaped passthrough so that fixtures already serialized as JSON can be
-loaded without re-validating ?12 fields twice.
+JSON-shaped passthrough so that fixtures already serialized as JSON can
+be loaded without re-validating \u00a712 fields twice.
 """
 
 from __future__ import annotations

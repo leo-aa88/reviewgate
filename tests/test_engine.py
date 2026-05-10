@@ -389,6 +389,31 @@ def test_analyze_emits_suggested_labels_for_multi_warning_pr() -> None:
     ]
 
 
+def test_reviewability_report_serializes_suggested_labels_field() -> None:
+    """\u00a710.2 + \u00a713.9: ``suggested_labels`` survives a Pydantic round-trip.
+
+    Schema-shape regression for :class:`ReviewabilityReport`. If the
+    field is dropped, renamed, or excluded from ``model_dump`` (e.g. by
+    an accidental ``exclude=...`` in a ``ConfigDict`` change), this
+    test fails immediately rather than silently shipping reviews
+    without the labels downstream consumers expect.
+    """
+
+    engine_input = EngineInput(
+        pr=_pr(additions=10, deletions=2, changed_files=1, body=""),
+        files=[_file("README.md", changes=12)],
+    )
+    report = analyze(engine_input)
+    dumped = report.model_dump()
+
+    assert "suggested_labels" in dumped
+    assert dumped["suggested_labels"] == report.suggested_labels
+    assert dumped["suggested_labels"] == [
+        "reviewability-warn",
+        "missing-context",
+    ]
+
+
 def test_analyze_emits_suggested_labels_for_warn_verdict() -> None:
     """\u00a710.2 + \u00a713.9: WARN PRs surface the warn verdict label and concerns.
 

@@ -23,9 +23,20 @@ import ssl
 import sys
 import urllib.error
 import urllib.request
+from pathlib import Path
 from typing import Final
 
-from _pr_review_llm import (
+# Make the sibling import work no matter how the script is invoked
+# (`python scripts/post_pr_llm_review.py` from repo root, `python
+# /abs/path/post_pr_llm_review.py`, `python -m post_pr_llm_review`
+# from `scripts/`, etc.). Direct execution puts the script's directory
+# at sys.path[0]; module-style execution does not. Inserting it
+# unconditionally is a no-op when it is already present.
+_SCRIPT_DIR = Path(__file__).resolve().parent
+if str(_SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(_SCRIPT_DIR))
+
+from _pr_review_llm import (  # noqa: E402  (sys.path mutation above)
     DiffIndex,
     JsonObject,
     JsonValue,

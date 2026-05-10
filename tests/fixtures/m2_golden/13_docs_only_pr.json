@@ -1,0 +1,35 @@
+{
+  "pr": {
+    "title": "docs: clarify install instructions for Windows users (closes #1290)",
+    "body": "Adds a Windows section to the install guide and rewrites the prerequisite list so it is no longer Linux-centric. Closes #1290. No code touched.",
+    "author": "octocat",
+    "base_branch": "main",
+    "head_branch": "docs/install-windows",
+    "additions": 70,
+    "deletions": 12,
+    "changed_files": 3
+  },
+  "files": [
+    {
+      "filename": "docs/install.md",
+      "status": "modified",
+      "additions": 50,
+      "deletions": 8,
+      "changes": 58
+    },
+    {
+      "filename": "docs/prerequisites.md",
+      "status": "modified",
+      "additions": 15,
+      "deletions": 4,
+      "changes": 19
+    },
+    {
+      "filename": "README.md",
+      "status": "modified",
+      "additions": 5,
+      "deletions": 0,
+      "changes": 5
+    }
+  ]
+}

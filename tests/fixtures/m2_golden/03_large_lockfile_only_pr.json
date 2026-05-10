@@ -1,0 +1,28 @@
+{
+  "pr": {
+    "title": "chore: refresh package-lock after upstream patch releases (#412)",
+    "body": "Routine lockfile refresh after upstream maintenance releases. No source changes; the manifest pins are unchanged. Refreshes #412.",
+    "author": "renovate-bot",
+    "base_branch": "main",
+    "head_branch": "chore/refresh-lockfiles",
+    "additions": 5200,
+    "deletions": 4900,
+    "changed_files": 2
+  },
+  "files": [
+    {
+      "filename": "package-lock.json",
+      "status": "modified",
+      "additions": 5000,
+      "deletions": 4800,
+      "changes": 9800
+    },
+    {
+      "filename": "yarn.lock",
+      "status": "modified",
+      "additions": 200,
+      "deletions": 100,
+      "changes": 300
+    }
+  ]
+}

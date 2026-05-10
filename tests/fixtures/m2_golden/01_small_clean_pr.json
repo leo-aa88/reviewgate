@@ -1,0 +1,28 @@
+{
+  "pr": {
+    "title": "Tighten RateLimiter overflow guard (closes #221)",
+    "body": "Bug fix for the RateLimiter when token-bucket usage overflows the int32 counter.\n\nFixes #221. The fix is two lines plus a regression test; see the linked issue for the original report and reproduction.",
+    "author": "octocat",
+    "base_branch": "main",
+    "head_branch": "fix/rate-limiter-overflow",
+    "additions": 12,
+    "deletions": 4,
+    "changed_files": 2
+  },
+  "files": [
+    {
+      "filename": "src/ratelimiter/bucket.py",
+      "status": "modified",
+      "additions": 4,
+      "deletions": 2,
+      "changes": 6
+    },
+    {
+      "filename": "tests/test_bucket_overflow.py",
+      "status": "added",
+      "additions": 8,
+      "deletions": 2,
+      "changes": 10
+    }
+  ]
+}

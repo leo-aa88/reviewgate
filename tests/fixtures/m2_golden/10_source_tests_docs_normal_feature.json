@@ -1,0 +1,42 @@
+{
+  "pr": {
+    "title": "feat(search): add fuzzy match operator (closes #1014)",
+    "body": "Adds a `~` fuzzy-match operator to the search parser. Implementation lives in `src/search/parser.py`; behavior is covered by table-driven tests in `tests/test_parser.py`. README and the `docs/search.md` reference are updated with the new operator.\n\nCloses #1014. Benchmarked against the corpus from #1010; no regressions.",
+    "author": "octocat",
+    "base_branch": "main",
+    "head_branch": "feat/search-fuzzy-operator",
+    "additions": 220,
+    "deletions": 30,
+    "changed_files": 4
+  },
+  "files": [
+    {
+      "filename": "src/search/parser.py",
+      "status": "modified",
+      "additions": 90,
+      "deletions": 20,
+      "changes": 110
+    },
+    {
+      "filename": "tests/test_parser.py",
+      "status": "modified",
+      "additions": 80,
+      "deletions": 5,
+      "changes": 85
+    },
+    {
+      "filename": "docs/search.md",
+      "status": "modified",
+      "additions": 40,
+      "deletions": 5,
+      "changes": 45
+    },
+    {
+      "filename": "README.md",
+      "status": "modified",
+      "additions": 10,
+      "deletions": 0,
+      "changes": 10
+    }
+  ]
+}

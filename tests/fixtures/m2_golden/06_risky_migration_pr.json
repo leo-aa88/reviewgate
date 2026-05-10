@@ -1,0 +1,21 @@
+{
+  "pr": {
+    "title": "db migration: add invoices.tax_region column (closes #722)",
+    "body": "Adds the `tax_region` column to `invoices` so the new EU VAT logic from #722 has somewhere to read from. The migration is forward-only; the rollback path is documented in the migration file header. Discussed and approved in #720.\n\nThe migration touches only the `invoices` table; no application code in this PR reads it yet (that lands in #723).",
+    "author": "octocat",
+    "base_branch": "main",
+    "head_branch": "db/invoices-tax-region",
+    "additions": 35,
+    "deletions": 0,
+    "changed_files": 1
+  },
+  "files": [
+    {
+      "filename": "db/migrations/20260509_invoices_tax_region.sql",
+      "status": "added",
+      "additions": 35,
+      "deletions": 0,
+      "changes": 35
+    }
+  ]
+}

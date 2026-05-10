@@ -1,0 +1,560 @@
+{
+  "pr": {
+    "title": "refactor: split monolith into search/identity/checkout packages (closes #1188)",
+    "body": "Splits the legacy `app/` monolith into three top-level packages so we can ship them independently. Mostly mechanical: imports rewritten, files moved, and per-package test suites moved alongside their package. No behavior change is intended; the public CLI commands are unchanged.\n\nFixes #1188. CI fully green; staging smoke clean.",
+    "author": "octocat",
+    "base_branch": "main",
+    "head_branch": "refactor/split-monolith",
+    "additions": 3853,
+    "deletions": 621,
+    "changed_files": 78
+  },
+  "files": [
+    {
+      "filename": "src/search/module_000.py",
+      "status": "modified",
+      "additions": 45,
+      "deletions": 5,
+      "changes": 50
+    },
+    {
+      "filename": "src/identity/module_001.py",
+      "status": "modified",
+      "additions": 46,
+      "deletions": 6,
+      "changes": 52
+    },
+    {
+      "filename": "src/checkout/module_002.py",
+      "status": "modified",
+      "additions": 47,
+      "deletions": 7,
+      "changes": 54
+    },
+    {
+      "filename": "src/search/module_003.py",
+      "status": "modified",
+      "additions": 48,
+      "deletions": 8,
+      "changes": 56
+    },
+    {
+      "filename": "src/identity/module_004.py",
+      "status": "modified",
+      "additions": 49,
+      "deletions": 9,
+      "changes": 58
+    },
+    {
+      "filename": "src/checkout/module_005.py",
+      "status": "modified",
+      "additions": 50,
+      "deletions": 10,
+      "changes": 60
+    },
+    {
+      "filename": "src/search/module_006.py",
+      "status": "modified",
+      "additions": 51,
+      "deletions": 11,
+      "changes": 62
+    },
+    {
+      "filename": "src/identity/module_007.py",
+      "status": "modified",
+      "additions": 52,
+      "deletions": 5,
+      "changes": 57
+    },
+    {
+      "filename": "src/checkout/module_008.py",
+      "status": "modified",
+      "additions": 53,
+      "deletions": 6,
+      "changes": 59
+    },
+    {
+      "filename": "src/search/module_009.py",
+      "status": "modified",
+      "additions": 54,
+      "deletions": 7,
+      "changes": 61
+    },
+    {
+      "filename": "src/identity/module_010.py",
+      "status": "modified",
+      "additions": 45,
+      "deletions": 8,
+      "changes": 53
+    },
+    {
+      "filename": "src/checkout/module_011.py",
+      "status": "modified",
+      "additions": 46,
+      "deletions": 9,
+      "changes": 55
+    },
+    {
+      "filename": "src/search/module_012.py",
+      "status": "modified",
+      "additions": 47,
+      "deletions": 10,
+      "changes": 57
+    },
+    {
+      "filename": "src/identity/module_013.py",
+      "status": "modified",
+      "additions": 48,
+      "deletions": 11,
+      "changes": 59
+    },
+    {
+      "filename": "src/checkout/module_014.py",
+      "status": "modified",
+      "additions": 49,
+      "deletions": 5,
+      "changes": 54
+    },
+    {
+      "filename": "src/search/module_015.py",
+      "status": "modified",
+      "additions": 50,
+      "deletions": 6,
+      "changes": 56
+    },
+    {
+      "filename": "src/identity/module_016.py",
+      "status": "modified",
+      "additions": 51,
+      "deletions": 7,
+      "changes": 58
+    },
+    {
+      "filename": "src/checkout/module_017.py",
+      "status": "modified",
+      "additions": 52,
+      "deletions": 8,
+      "changes": 60
+    },
+    {
+      "filename": "src/search/module_018.py",
+      "status": "modified",
+      "additions": 53,
+      "deletions": 9,
+      "changes": 62
+    },
+    {
+      "filename": "src/identity/module_019.py",
+      "status": "modified",
+      "additions": 54,
+      "deletions": 10,
+      "changes": 64
+    },
+    {
+      "filename": "src/checkout/module_020.py",
+      "status": "modified",
+      "additions": 45,
+      "deletions": 11,
+      "changes": 56
+    },
+    {
+      "filename": "src/search/module_021.py",
+      "status": "modified",
+      "additions": 46,
+      "deletions": 5,
+      "changes": 51
+    },
+    {
+      "filename": "src/identity/module_022.py",
+      "status": "modified",
+      "additions": 47,
+      "deletions": 6,
+      "changes": 53
+    },
+    {
+      "filename": "src/checkout/module_023.py",
+      "status": "modified",
+      "additions": 48,
+      "deletions": 7,
+      "changes": 55
+    },
+    {
+      "filename": "src/search/module_024.py",
+      "status": "modified",
+      "additions": 49,
+      "deletions": 8,
+      "changes": 57
+    },
+    {
+      "filename": "src/identity/module_025.py",
+      "status": "modified",
+      "additions": 50,
+      "deletions": 9,
+      "changes": 59
+    },
+    {
+      "filename": "src/checkout/module_026.py",
+      "status": "modified",
+      "additions": 51,
+      "deletions": 10,
+      "changes": 61
+    },
+    {
+      "filename": "src/search/module_027.py",
+      "status": "modified",
+      "additions": 52,
+      "deletions": 11,
+      "changes": 63
+    },
+    {
+      "filename": "src/identity/module_028.py",
+      "status": "modified",
+      "additions": 53,
+      "deletions": 5,
+      "changes": 58
+    },
+    {
+      "filename": "src/checkout/module_029.py",
+      "status": "modified",
+      "additions": 54,
+      "deletions": 6,
+      "changes": 60
+    },
+    {
+      "filename": "src/search/module_030.py",
+      "status": "modified",
+      "additions": 45,
+      "deletions": 7,
+      "changes": 52
+    },
+    {
+      "filename": "src/identity/module_031.py",
+      "status": "modified",
+      "additions": 46,
+      "deletions": 8,
+      "changes": 54
+    },
+    {
+      "filename": "src/checkout/module_032.py",
+      "status": "modified",
+      "additions": 47,
+      "deletions": 9,
+      "changes": 56
+    },
+    {
+      "filename": "src/search/module_033.py",
+      "status": "modified",
+      "additions": 48,
+      "deletions": 10,
+      "changes": 58
+    },
+    {
+      "filename": "src/identity/module_034.py",
+      "status": "modified",
+      "additions": 49,
+      "deletions": 11,
+      "changes": 60
+    },
+    {
+      "filename": "src/checkout/module_035.py",
+      "status": "modified",
+      "additions": 50,
+      "deletions": 5,
+      "changes": 55
+    },
+    {
+      "filename": "src/search/module_036.py",
+      "status": "modified",
+      "additions": 51,
+      "deletions": 6,
+      "changes": 57
+    },
+    {
+      "filename": "src/identity/module_037.py",
+      "status": "modified",
+      "additions": 52,
+      "deletions": 7,
+      "changes": 59
+    },
+    {
+      "filename": "src/checkout/module_038.py",
+      "status": "modified",
+      "additions": 53,
+      "deletions": 8,
+      "changes": 61
+    },
+    {
+      "filename": "src/search/module_039.py",
+      "status": "modified",
+      "additions": 54,
+      "deletions": 9,
+      "changes": 63
+    },
+    {
+      "filename": "src/identity/module_040.py",
+      "status": "modified",
+      "additions": 45,
+      "deletions": 10,
+      "changes": 55
+    },
+    {
+      "filename": "src/checkout/module_041.py",
+      "status": "modified",
+      "additions": 46,
+      "deletions": 11,
+      "changes": 57
+    },
+    {
+      "filename": "src/search/module_042.py",
+      "status": "modified",
+      "additions": 47,
+      "deletions": 5,
+      "changes": 52
+    },
+    {
+      "filename": "src/identity/module_043.py",
+      "status": "modified",
+      "additions": 48,
+      "deletions": 6,
+      "changes": 54
+    },
+    {
+      "filename": "src/checkout/module_044.py",
+      "status": "modified",
+      "additions": 49,
+      "deletions": 7,
+      "changes": 56
+    },
+    {
+      "filename": "src/search/module_045.py",
+      "status": "modified",
+      "additions": 50,
+      "deletions": 8,
+      "changes": 58
+    },
+    {
+      "filename": "src/identity/module_046.py",
+      "status": "modified",
+      "additions": 51,
+      "deletions": 9,
+      "changes": 60
+    },
+    {
+      "filename": "src/checkout/module_047.py",
+      "status": "modified",
+      "additions": 52,
+      "deletions": 10,
+      "changes": 62
+    },
+    {
+      "filename": "src/search/module_048.py",
+      "status": "modified",
+      "additions": 53,
+      "deletions": 11,
+      "changes": 64
+    },
+    {
+      "filename": "src/identity/module_049.py",
+      "status": "modified",
+      "additions": 54,
+      "deletions": 5,
+      "changes": 59
+    },
+    {
+      "filename": "src/checkout/module_050.py",
+      "status": "modified",
+      "additions": 45,
+      "deletions": 6,
+      "changes": 51
+    },
+    {
+      "filename": "src/search/module_051.py",
+      "status": "modified",
+      "additions": 46,
+      "deletions": 7,
+      "changes": 53
+    },
+    {
+      "filename": "src/identity/module_052.py",
+      "status": "modified",
+      "additions": 47,
+      "deletions": 8,
+      "changes": 55
+    },
+    {
+      "filename": "src/checkout/module_053.py",
+      "status": "modified",
+      "additions": 48,
+      "deletions": 9,
+      "changes": 57
+    },
+    {
+      "filename": "src/search/module_054.py",
+      "status": "modified",
+      "additions": 49,
+      "deletions": 10,
+      "changes": 59
+    },
+    {
+      "filename": "src/identity/module_055.py",
+      "status": "modified",
+      "additions": 50,
+      "deletions": 11,
+      "changes": 61
+    },
+    {
+      "filename": "src/checkout/module_056.py",
+      "status": "modified",
+      "additions": 51,
+      "deletions": 5,
+      "changes": 56
+    },
+    {
+      "filename": "src/search/module_057.py",
+      "status": "modified",
+      "additions": 52,
+      "deletions": 6,
+      "changes": 58
+    },
+    {
+      "filename": "src/identity/module_058.py",
+      "status": "modified",
+      "additions": 53,
+      "deletions": 7,
+      "changes": 60
+    },
+    {
+      "filename": "src/checkout/module_059.py",
+      "status": "modified",
+      "additions": 54,
+      "deletions": 8,
+      "changes": 62
+    },
+    {
+      "filename": "src/search/module_060.py",
+      "status": "modified",
+      "additions": 45,
+      "deletions": 9,
+      "changes": 54
+    },
+    {
+      "filename": "src/identity/module_061.py",
+      "status": "modified",
+      "additions": 46,
+      "deletions": 10,
+      "changes": 56
+    },
+    {
+      "filename": "src/checkout/module_062.py",
+      "status": "modified",
+      "additions": 47,
+      "deletions": 11,
+      "changes": 58
+    },
+    {
+      "filename": "src/search/module_063.py",
+      "status": "modified",
+      "additions": 48,
+      "deletions": 5,
+      "changes": 53
+    },
+    {
+      "filename": "src/identity/module_064.py",
+      "status": "modified",
+      "additions": 49,
+      "deletions": 6,
+      "changes": 55
+    },
+    {
+      "filename": "src/checkout/module_065.py",
+      "status": "modified",
+      "additions": 50,
+      "deletions": 7,
+      "changes": 57
+    },
+    {
+      "filename": "src/search/module_066.py",
+      "status": "modified",
+      "additions": 51,
+      "deletions": 8,
+      "changes": 59
+    },
+    {
+      "filename": "src/identity/module_067.py",
+      "status": "modified",
+      "additions": 52,
+      "deletions": 9,
+      "changes": 61
+    },
+    {
+      "filename": "src/checkout/module_068.py",
+      "status": "modified",
+      "additions": 53,
+      "deletions": 10,
+      "changes": 63
+    },
+    {
+      "filename": "src/search/module_069.py",
+      "status": "modified",
+      "additions": 54,
+      "deletions": 11,
+      "changes": 65
+    },
+    {
+      "filename": "src/identity/module_070.py",
+      "status": "modified",
+      "additions": 45,
+      "deletions": 5,
+      "changes": 50
+    },
+    {
+      "filename": "src/checkout/module_071.py",
+      "status": "modified",
+      "additions": 46,
+      "deletions": 6,
+      "changes": 52
+    },
+    {
+      "filename": "src/search/module_072.py",
+      "status": "modified",
+      "additions": 47,
+      "deletions": 7,
+      "changes": 54
+    },
+    {
+      "filename": "src/identity/module_073.py",
+      "status": "modified",
+      "additions": 48,
+      "deletions": 8,
+      "changes": 56
+    },
+    {
+      "filename": "src/checkout/module_074.py",
+      "status": "modified",
+      "additions": 49,
+      "deletions": 9,
+      "changes": 58
+    },
+    {
+      "filename": "src/search/module_075.py",
+      "status": "modified",
+      "additions": 50,
+      "deletions": 10,
+      "changes": 60
+    },
+    {
+      "filename": "src/identity/module_076.py",
+      "status": "modified",
+      "additions": 51,
+      "deletions": 11,
+      "changes": 62
+    },
+    {
+      "filename": "src/checkout/module_077.py",
+      "status": "modified",
+      "additions": 52,
+      "deletions": 5,
+      "changes": 57
+    }
+  ]
+}

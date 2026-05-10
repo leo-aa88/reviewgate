@@ -1,0 +1,35 @@
+{
+  "pr": {
+    "title": "regen protobuf clients after schema bump (#503)",
+    "body": "Re-runs the codegen pipeline after the latest .proto schema update; the protobuf compiler regenerated every Go binding and OpenAPI client. No human-authored source changes. Closes #503.",
+    "author": "octocat",
+    "base_branch": "main",
+    "head_branch": "regen/protobuf-2026-05-09",
+    "additions": 6000,
+    "deletions": 5800,
+    "changed_files": 3
+  },
+  "files": [
+    {
+      "filename": "internal/api/v1/service.pb.go",
+      "status": "modified",
+      "additions": 3000,
+      "deletions": 2900,
+      "changes": 5900
+    },
+    {
+      "filename": "internal/api/v1/service.generated.ts",
+      "status": "modified",
+      "additions": 2000,
+      "deletions": 1900,
+      "changes": 3900
+    },
+    {
+      "filename": "openapi/openapi.generated.yaml",
+      "status": "modified",
+      "additions": 1000,
+      "deletions": 1000,
+      "changes": 2000
+    }
+  ]
+}

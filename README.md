@@ -19,6 +19,31 @@ pip install -e ".[dev]"
 pytest
 ```
 
+## GitHub Action
+
+The open-source GitHub Action wrapper lives in [`reviewgate-action/`](reviewgate-action/). Reference workflow (verbatim from `docs/DESIGN.md` §14):
+
+```yaml
+name: ReviewGate
+
+on:
+  pull_request:
+    types: [opened, synchronize, edited, reopened]
+
+jobs:
+  reviewgate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: leo-aa88/reviewgate-core/reviewgate-action@v1
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          fail-on: FAIL
+          post-comment: true
+```
+
+See [`reviewgate-action/README.md`](reviewgate-action/README.md) for the full input/output reference and the §14.1 coexistence rules with the hosted ReviewGate App.
+
 ## Contributing
 
 Before opening a PR, see [`CONTRIBUTING.md`](CONTRIBUTING.md). Note in

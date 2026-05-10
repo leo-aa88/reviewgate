@@ -1,0 +1,125 @@
+# reviewgate-action: GitHub Action wrapper around reviewgate-core (DESIGN.md §14).
+#
+# This file is the Action's public contract. Inputs and their default
+# values must stay in sync with §14 of `docs/DESIGN.md`; the §24.4
+# manual QA checklist (Milestone 8) verifies the documented snippet.
+#
+# Usage (verbatim from §14):
+#
+#     - uses: leo-aa88/reviewgate-core/reviewgate-action@v1
+#       with:
+#         github-token: ${{ secrets.GITHUB_TOKEN }}
+#         fail-on: FAIL
+#         post-comment: true
+#
+# The actual fetch / core / comment / fail-on logic lands in the
+# follow-on issues (#24, #25, #26). This scaffold validates the inputs
+# and exits cleanly so the metadata can be referenced by consumers and
+# integration-tested before the runtime is wired up.
+
+name: ReviewGate
+description: >-
+  Run the reviewgate-core deterministic reviewability engine on a pull
+  request. Optionally posts a summary comment and fails the workflow
+  when the configured threshold is reached. See DESIGN.md §14.
+author: ReviewGate contributors
+branding:
+  icon: check-square
+  color: blue
+
+inputs:
+  github-token:
+    description: >-
+      GitHub token used to fetch PR metadata and (when `post-comment`
+      is true) post the summary comment. The token needs at minimum
+      `pull-requests: read`; granting `pull-requests: write` is required
+      for `post-comment: true`. Required; no default per §14.
+    required: true
+
+  fail-on:
+    description: >-
+      Reviewability verdict (or stronger) at which the workflow exits
+      non-zero. One of `PASS`, `WARN`, `FAIL`, or `never`. Default
+      `FAIL` per §14.
+    required: false
+    default: FAIL
+
+  post-comment:
+    description: >-
+      When `true`, post or upsert the §13 ReviewGate marker comment on
+      the PR. When `false`, the Action only writes the report to the
+      job summary and step output. Default `true` per §14.
+    required: false
+    default: "true"
+
+  mode:
+    description: >-
+      Coexistence mode with the hosted ReviewGate App (§14.1). One of
+      `auto`, `action`, or `quiet`. `auto` (the default per §14)
+      defers to `.reviewgate.yml` and stays quiet when the file pins
+      `mode: app`.
+    required: false
+    default: auto
+
+outputs:
+  reviewability:
+    description: >-
+      The §10.13 baseline verdict produced by reviewgate-core. One of
+      `PASS`, `WARN`, or `FAIL`. Empty string when the Action did not
+      run (e.g. `mode: quiet` honoured at startup).
+    value: ${{ steps.run.outputs.reviewability }}
+
+  report-json:
+    description: >-
+      The full §10.2 report as a JSON string. Empty when the Action
+      did not run. Consumers should parse with `fromJSON()` rather
+      than relying on string contents.
+    value: ${{ steps.run.outputs.report-json }}
+
+# §14 places the runtime behind `runs.using: composite` so the Action
+# stays in a single repository (no Docker image, no Node packaging).
+# This scaffold ships a placeholder step that validates inputs only;
+# the real fetch + core + comment pipeline is implemented incrementally
+# in issues #24 (PR fetch), #25 (core invocation + fail-on), and #26
+# (mode coexistence + comment upsert).
+runs:
+  using: composite
+  steps:
+    - id: run
+      name: ReviewGate (scaffold; runtime lands in #24-#26)
+      shell: bash
+      env:
+        REVIEWGATE_FAIL_ON: ${{ inputs.fail-on }}
+        REVIEWGATE_POST_COMMENT: ${{ inputs.post-comment }}
+        REVIEWGATE_MODE: ${{ inputs.mode }}
+      run: |
+        set -euo pipefail
+
+        case "${REVIEWGATE_FAIL_ON}" in
+          PASS|WARN|FAIL|never) ;;
+          *)
+            echo "::error::fail-on must be one of PASS, WARN, FAIL, never (got: ${REVIEWGATE_FAIL_ON})"
+            exit 2
+            ;;
+        esac
+
+        case "${REVIEWGATE_POST_COMMENT}" in
+          true|false) ;;
+          *)
+            echo "::error::post-comment must be 'true' or 'false' (got: ${REVIEWGATE_POST_COMMENT})"
+            exit 2
+            ;;
+        esac
+
+        case "${REVIEWGATE_MODE}" in
+          auto|action|quiet) ;;
+          *)
+            echo "::error::mode must be one of auto, action, quiet (got: ${REVIEWGATE_MODE})"
+            exit 2
+            ;;
+        esac
+
+        echo "::notice::reviewgate-action scaffold ran with fail-on=${REVIEWGATE_FAIL_ON}, post-comment=${REVIEWGATE_POST_COMMENT}, mode=${REVIEWGATE_MODE}. Runtime (PR fetch, core invocation, comment) lands in issues #24-#26."
+
+        echo "reviewability=" >> "${GITHUB_OUTPUT}"
+        echo "report-json=" >> "${GITHUB_OUTPUT}"

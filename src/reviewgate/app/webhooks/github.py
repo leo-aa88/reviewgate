@@ -1,16 +1,18 @@
 """GitHub ``POST /webhooks/github`` handler (``docs/DESIGN.md`` §13.3).
 
 Validates ``X-Hub-Signature-256`` using the configured webhook secret, then
-routes by ``X-GitHub-Event`` per ``docs/DESIGN.md`` §13.2: ``ping`` and
-installation events return **202** without Redis; unsupported events return
-**204**; ``pull_request`` actions in ``opened`` / ``synchronize`` / ``reopened`` enqueue
-a stub job; ``edited`` enqueues only when ``changes`` touches ``title``,
-``body``, or ``base`` (§13.2). The actor module is imported
-only on the enqueue path after
+routes by ``X-GitHub-Event`` per ``docs/DESIGN.md`` §13.2: ``ping`` returns **202**
+without persistence; ``installation`` / ``installation_repositories`` upsert
+``installations`` and ``repositories`` when a database URL is configured (issue
+#35); unsupported installation actions return **204**; ``pull_request`` actions
+in ``opened`` / ``synchronize`` / ``reopened`` enqueue a stub job; ``edited``
+enqueues only when ``changes`` touches ``title``, ``body``, or ``base`` (§13.2).
+The actor module is imported only on the enqueue path after
 :func:`reviewgate.app.analysis.broker_install.install_redis_broker` runs.
 Delivery dedupe persists ``X-GitHub-Delivery`` to ``webhook_deliveries``; the
-enqueue path requires ``REVIEWGATE_DATABASE_URL`` and ``REVIEWGATE_REDIS_URL``
-(issue #34). Payload persistence is handled in later issues (#50).
+pull-request enqueue path requires ``REVIEWGATE_DATABASE_URL`` and
+``REVIEWGATE_REDIS_URL`` (issue #34). Payload persistence for analyses is handled
+in later issues (#50).
 """
 
 from __future__ import annotations
@@ -18,15 +20,17 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
-from typing import Final
+from typing import Any, Final
 
 from fastapi import APIRouter, HTTPException, Request, Response, status
 from pydantic import SecretStr
+from sqlalchemy.exc import OperationalError
 from starlette.concurrency import run_in_threadpool
 
 from reviewgate.app.analysis.broker_install import install_redis_broker
 from reviewgate.app.settings import AppSettings
 from reviewgate.app.webhooks.dedupe import claim_github_webhook_delivery
+from reviewgate.app.webhooks.installation_persist import persist_installation_webhook_payload
 
 router = APIRouter()
 
@@ -40,12 +44,6 @@ _PULL_REQUEST_ANALYSIS_ACTIONS: Final[frozenset[str]] = frozenset(
 # Subset of ``pull_request`` ``changes`` keys that affect reviewability (§13.2).
 _PULL_REQUEST_EDIT_RELEVANT_CHANGES: Final[frozenset[str]] = frozenset(
     {"title", "body", "base"},
-)
-
-# Lifecycle probes GitHub sends during setup or installation management; no
-# analysis job.
-_ACK_EVENTS_NO_QUEUE: Final[frozenset[str]] = frozenset(
-    {"ping", "installation", "installation_repositories"},
 )
 
 
@@ -67,9 +65,95 @@ def _verify_signature_sha256(
     return hmac.compare_digest(signature_header, expected)
 
 
+async def _handle_installation_style_webhook(
+    *,
+    settings: AppSettings,
+    body: bytes,
+    delivery_id: str,
+    event_name: str,
+) -> Response:
+    """Persist supported ``installation`` / ``installation_repositories`` payloads."""
+
+    try:
+        payload_obj: object = json.loads(body.decode("utf-8"))
+    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            detail="installation webhook body must be JSON",
+        ) from exc
+
+    if not isinstance(payload_obj, dict):
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            detail="installation webhook body must be a JSON object",
+        )
+
+    payload: dict[str, Any] = payload_obj
+    action = payload.get("action")
+    if not isinstance(action, str):
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            detail="installation webhook action must be a string",
+        )
+
+    if event_name == "installation":
+        if action != "created":
+            return Response(status_code=status.HTTP_204_NO_CONTENT)
+    elif event_name == "installation_repositories":
+        if action not in ("added", "removed"):
+            return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+    if not delivery_id.strip():
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            detail="Missing X-GitHub-Delivery",
+        )
+
+    if settings.database_url is None:
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Database URL is required for installation webhook processing",
+        )
+
+    claim_result = await run_in_threadpool(
+        claim_github_webhook_delivery,
+        settings,
+        delivery_id=delivery_id,
+        event_name=event_name,
+    )
+    if claim_result == "duplicate":
+        return Response(status_code=status.HTTP_200_OK)
+    if claim_result == "database_unavailable":
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Temporary database error while recording webhook delivery",
+        )
+
+    try:
+        await run_in_threadpool(
+            persist_installation_webhook_payload,
+            settings,
+            event_name=event_name,
+            action=action,
+            payload=payload,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+    except OperationalError as exc:
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Temporary database error while persisting installation data",
+        ) from exc
+
+    return Response(status_code=status.HTTP_202_ACCEPTED)
+
+
 @router.post("/webhooks/github")
 async def github_webhook(request: Request) -> Response:
-    """Verify the signature, then acknowledge or enqueue per ``DESIGN.md`` §13.2."""
+    """Verify the signature, then acknowledge, persist, or enqueue per §13.2."""
 
     settings = AppSettings()
     body = await request.body()
@@ -90,8 +174,16 @@ async def github_webhook(request: Request) -> Response:
     delivery_id = request.headers.get("x-github-delivery", "")
     event_name = request.headers.get("x-github-event", "")
 
-    if event_name in _ACK_EVENTS_NO_QUEUE:
+    if event_name == "ping":
         return Response(status_code=status.HTTP_202_ACCEPTED)
+
+    if event_name in ("installation", "installation_repositories"):
+        return await _handle_installation_style_webhook(
+            settings=settings,
+            body=body,
+            delivery_id=delivery_id,
+            event_name=event_name,
+        )
 
     if event_name != "pull_request":
         return Response(status_code=status.HTTP_204_NO_CONTENT)

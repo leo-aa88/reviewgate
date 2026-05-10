@@ -348,6 +348,18 @@ def _decide_event(review: JsonObject, demoted: list[JsonObject]) -> str:
     return "REQUEST_CHANGES" if _has_must_severity(review, demoted) else "COMMENT"
 
 
+_ALLOWED_REVIEW_EVENTS: frozenset[str] = frozenset({"COMMENT", "REQUEST_CHANGES"})
+"""Reviews API ``event`` values this script is allowed to post.
+
+We deliberately exclude ``APPROVE`` (a bot APPROVE could satisfy
+branch protection requiring a review and let unreviewed code through)
+and ``PENDING`` (drafts; this script always posts immediately).
+Validating against this allowlist before the HTTP call turns a
+malformed ``review["verdict"]`` into a clear local error instead of
+an opaque GitHub 422 mid-run.
+"""
+
+
 def _post_pr_review(
     owner: str,
     repo: str,
@@ -359,6 +371,11 @@ def _post_pr_review(
     event: str,
     comments: list[JsonObject],
 ) -> None:
+    if event not in _ALLOWED_REVIEW_EVENTS:
+        raise RuntimeError(
+            f"Refusing to post PR review with event={event!r}; "
+            f"expected one of {sorted(_ALLOWED_REVIEW_EVENTS)}"
+        )
     url = f"https://api.github.com/repos/{owner}/{repo}/pulls/{pr_number}/reviews"
     inline: list[JsonValue] = []
     inline.extend(comments)

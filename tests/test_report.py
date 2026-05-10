@@ -21,17 +21,17 @@ from reviewgate.core.mixed_concern import WARN_CODE_MIXED_CONCERN
 from reviewgate.core.pr_body import WARN_CODE_WEAK_BODY
 from reviewgate.core.report import suggested_labels
 from reviewgate.core.risky_paths import WARN_CODE_RISKY_NO_RATIONALE
-from reviewgate.core.schemas import EngineWarning, Reviewability
+from reviewgate.core.schemas import EngineWarning, Reviewability, WarningSeverity
 from reviewgate.core.size import (
     WARN_CODE_TOO_LARGE_HUMAN_LOC,
     WARN_CODE_TOO_MANY_FILES,
 )
 
 
-def _warning(code: str, severity: str = "medium") -> EngineWarning:
+def _warning(code: str, severity: WarningSeverity = "medium") -> EngineWarning:
     return EngineWarning(
         code=code,
-        severity=severity,  # type: ignore[arg-type]
+        severity=severity,
         message="x",
         evidence={},
     )

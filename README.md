@@ -21,7 +21,11 @@ pytest
 
 ## GitHub Action
 
-The open-source GitHub Action wrapper lives in [`reviewgate-action/`](reviewgate-action/). Reference workflow (verbatim from `docs/DESIGN.md` §14):
+The open-source GitHub Action wrapper lives in [`reviewgate-action/`](reviewgate-action/).
+
+> **Status: scaffold (issue #23). Do not pin this Action as a required status check yet.** The composite step validates inputs and **exits non-zero** until the runtime lands in issues #24, #25, and #26. The fail-closed posture exists so a workflow that adds the Action to branch protection cannot silently mark a PR mergeable while review logic is still missing.
+
+Reference workflow (verbatim from `docs/DESIGN.md` §14, intended for use once the runtime PRs land):
 
 ```yaml
 name: ReviewGate

@@ -83,7 +83,7 @@ runs:
   using: composite
   steps:
     - id: run
-      name: ReviewGate (scaffold; runtime lands in #24-#26)
+      name: ReviewGate (scaffold -- fails closed until #24-#26)
       shell: bash
       env:
         REVIEWGATE_FAIL_ON: ${{ inputs.fail-on }}
@@ -116,4 +116,12 @@ runs:
             ;;
         esac
 
-        echo "::notice::reviewgate-action scaffold ran with fail-on=${REVIEWGATE_FAIL_ON}, post-comment=${REVIEWGATE_POST_COMMENT}, mode=${REVIEWGATE_MODE}. Runtime (PR fetch, core invocation, comment) lands in issues #24-#26."
+        # Fail-closed posture: the scaffold cannot run the §14 review
+        # pipeline yet (PR fetch, core invocation, comment, fail-on
+        # policy land in #24-#26). Exiting non-zero here ensures a
+        # workflow that names this Action as a required check cannot
+        # silently report success, which would bypass branch
+        # protection. The READMEs both warn that the scaffold is not
+        # runnable until the runtime PRs land.
+        echo "::error::reviewgate-action scaffold is not runnable yet (issue #23). Inputs validate correctly (fail-on=${REVIEWGATE_FAIL_ON}, post-comment=${REVIEWGATE_POST_COMMENT}, mode=${REVIEWGATE_MODE}); the review runtime (PR fetch, core invocation, fail-on policy, comment) lands in issues #24-#26. Do not pin this Action as a required status check until those issues close."
+        exit 1

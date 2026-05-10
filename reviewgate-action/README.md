@@ -2,11 +2,11 @@
 
 GitHub Action wrapper around [`reviewgate-core`](../) that runs the deterministic reviewability engine on a pull request and (optionally) posts the §13 summary comment. See `docs/DESIGN.md` §14 for the full design.
 
-> **Status:** scaffold (issue #23). The Action's input contract is final; the runtime (`runs.using: composite` step) is a placeholder that validates inputs and exits cleanly. PR fetch, core invocation, and comment upsert land in issues #24–#26.
+> **Status: scaffold (issue #23). Do not pin as a required status check yet.** The composite step validates inputs and then **exits non-zero** with `::error::` so a workflow that names this Action as a required check cannot silently report success while the review pipeline is missing. PR fetch (#24), core invocation + `fail-on` (#25), and mode coexistence + comment (#26) are the follow-on issues. The input contract below is final; only the runtime is missing.
 
 ## Usage
 
-The §14 reference snippet:
+The §14 reference snippet (intended for use once #24–#26 land; running it against the current scaffold will fail the step on purpose):
 
 ```yaml
 name: ReviewGate

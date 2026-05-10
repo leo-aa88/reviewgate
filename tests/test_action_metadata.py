@@ -159,6 +159,61 @@ def test_action_runs_uses_composite_per_design_doc(
     )
 
 
+def test_scaffold_step_fails_closed_until_runtime_lands(
+    action_metadata: dict[str, Any],
+) -> None:
+    """The scaffold's composite step must exit non-zero (fail-closed).
+
+    Branch-protection safety guard: a workflow that names this Action
+    as a required status check on a PR must not be able to mark that
+    PR mergeable while the review runtime is still missing. Until
+    #24-#26 land, the scaffold step has to terminate with a clear
+    ``::error::`` and ``exit 1``. This test asserts the step's shell
+    body still contains both markers; if a future change re-enables
+    the no-op success path before the runtime is wired, the suite
+    fails before that change can ship.
+    """
+
+    steps = action_metadata["runs"]["steps"]
+    scaffold_step = steps[0]
+    assert isinstance(scaffold_step, dict)
+    body = scaffold_step.get("run")
+    assert isinstance(body, str), "scaffold step must have a shell `run` body"
+
+    assert "::error::" in body, (
+        "scaffold must emit an ::error:: line so the failure is visible "
+        "in PR check summaries"
+    )
+    assert "exit 1" in body, (
+        "scaffold must `exit 1` to fail the workflow check (fail-closed) "
+        "until #24-#26 wire the runtime; otherwise consumers that pin "
+        "this Action as a required check could silently merge without "
+        "review."
+    )
+
+
+def test_action_readme_warns_scaffold_is_not_runnable() -> None:
+    """Both READMEs must warn the scaffold is not runnable yet.
+
+    Drift catcher: the §14 snippet remains in both READMEs as
+    documentation, but the warning above it is what tells a copy-paste
+    adopter not to wire the scaffold into branch protection. Removing
+    the warning while leaving the snippet would invite the exact
+    silent-bypass risk the fail-closed step exists to prevent.
+    """
+
+    for path in (_TOP_README, _ACTION_README):
+        text = path.read_text(encoding="utf-8")
+        lower = text.lower()
+        assert "scaffold" in lower, (
+            f"{path.name} must mention the scaffold status"
+        )
+        assert "do not pin" in lower or "not runnable" in lower, (
+            f"{path.name} must warn that the scaffold is not safe to pin "
+            "as a required status check yet"
+        )
+
+
 def test_scaffold_does_not_declare_unimplemented_outputs(
     action_metadata: dict[str, Any],
 ) -> None:

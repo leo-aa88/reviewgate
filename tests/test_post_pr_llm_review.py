@@ -705,7 +705,7 @@ def test_process_pr_skips_draft_pull_request(
     The module docstring lists ``ready_for_review`` as a trigger, so a
     draft PR reaching ``_process_pr`` (e.g. via the schedule trigger
     that catches missed webhooks) should short-circuit. Without the
-    `item["draft"]` check, the bot would post on every draft synchronise.
+    ``item["draft"]`` check, the bot would post on every draft sync.
     """
 
     def fake_http_json(
@@ -725,6 +725,44 @@ def test_process_pr_skips_draft_pull_request(
     monkeypatch.setattr(ppr, "_http_json", fake_http_json)
 
     assert ppr._process_pr("o", "r", "o/r", 9, "tok") == "skip: draft PR"
+
+
+def test_process_pr_does_not_skip_when_draft_flag_is_false(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Negative case: ``"draft": false`` (the common path) must not skip.
+
+    Pairs with ``test_process_pr_skips_draft_pull_request`` so the
+    draft branch is exercised honestly: the skip happens iff the field
+    is truthy. The dedup ``_already_reviewed`` returns True here so we
+    short-circuit before any LLM call, keeping the test focused on the
+    draft branch.
+    """
+
+    head_sha = "abc12340" + "0" * 32
+
+    def fake_http_json(
+        method: str,
+        url: str,
+        token: str,
+        *,
+        accept: str = "application/vnd.github+json",
+        body: ppr.JsonObject | None = None,
+    ) -> ppr.JsonValue:
+        return {
+            "head": {"sha": head_sha, "repo": {"full_name": "o/r"}},
+            "draft": False,
+        }
+
+    monkeypatch.setattr(ppr, "_http_json", fake_http_json)
+    monkeypatch.setattr(
+        ppr,
+        "_list_issue_comments",
+        lambda *a, **kw: [{"body": ppr._marker(head_sha)}],
+    )
+    monkeypatch.setattr(ppr, "_list_pr_reviews", lambda *a, **kw: [])
+
+    assert ppr._process_pr("o", "r", "o/r", 9, "tok").startswith("skip: already reviewed")
 
 
 # ---------------------------------------------------------------------------

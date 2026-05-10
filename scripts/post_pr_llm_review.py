@@ -441,7 +441,7 @@ def _process_pr(
     if _fork_pr(repository, item):
         return "skip: fork PR"
 
-    if item.get("draft") is True:
+    if item.get("draft"):
         return "skip: draft PR"
 
     head_value = item.get("head")

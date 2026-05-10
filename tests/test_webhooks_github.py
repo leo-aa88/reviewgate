@@ -442,6 +442,35 @@ def test_github_webhook_pull_request_edited_title_change_enqueues(
     assert send.call_args[0][0]["github_pull_request_action"] == "edited"
 
 
+def test_github_webhook_pull_request_edited_base_change_enqueues(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``pull_request`` ``edited`` with a ``changes.base`` update enqueues (§13.2)."""
+
+    monkeypatch.setenv("REVIEWGATE_GITHUB_WEBHOOK_SECRET", "s")
+    monkeypatch.setenv("REVIEWGATE_REDIS_URL", "redis://127.0.0.1:6379/0")
+    body = b'{"action":"edited","changes":{"base":{"ref":{"from":"main","to":"dev"}}}}'
+    with patch(
+        "reviewgate.app.analysis.broker_install.RedisBroker",
+        lambda **_: StubBroker(),
+    ):
+        with patch(
+            "reviewgate.app.analysis.jobs.run_pr_analysis_stub.send",
+        ) as send:
+            with TestClient(create_app()) as client:
+                response = client.post(
+                    "/webhooks/github",
+                    content=body,
+                    headers={
+                        "x-hub-signature-256": _signature(body, "s"),
+                        "x-github-delivery": "d-base",
+                        "x-github-event": "pull_request",
+                    },
+                )
+    assert response.status_code == 202
+    send.assert_called_once()
+
+
 def test_github_webhook_pull_request_labeled_returns_204(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

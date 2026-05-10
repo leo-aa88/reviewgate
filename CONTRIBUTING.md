@@ -1,4 +1,4 @@
-# Contributing to reviewgate-core
+# Contributing to ReviewGate
 
 Thanks for opening a PR. This document covers the rules that the CI
 pipeline will check on every change. The full product context lives in
@@ -53,7 +53,7 @@ a forbidden package into the runtime `dependencies`.
 ### If the purity test fails
 
 The fix is almost always to **move the offending dependency to the
-GitHub Action layer (`reviewgate-action`) or the hosted App
+GitHub Action layer (`src/reviewgate_action/`) or the hosted App
 (`reviewgate-app`)**, where I/O is allowed. Expanding the allow-list
 should be the last resort and requires updating the §4.1 contract first.
 

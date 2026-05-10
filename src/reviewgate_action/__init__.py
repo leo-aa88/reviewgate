@@ -1,7 +1,7 @@
 """Open-source `reviewgate-action` runtime modules.
 
 The Python code that backs the composite step in
-``reviewgate-action/action.yml``. Modules here are intentionally
+``src/reviewgate_action/action.yml``. Modules here are intentionally
 stdlib-only (no third-party HTTP client) so a consumer's runner can
 ``pip install`` the action package on a cold cache in well under a
 second; the §15 stack recommendation of ``httpx`` applies to the

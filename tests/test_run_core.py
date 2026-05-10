@@ -585,14 +585,14 @@ def test_action_mode_invokes_upsert_with_resolved_repo(
             "--mode",
             "action",
             "--repo",
-            "leo-aa88/reviewgate-core",
+            "leo-aa88/reviewgate",
             "--pull-number",
             "42",
         ]
     )
     assert code == 0
     assert captured_kwargs["owner"] == "leo-aa88"
-    assert captured_kwargs["repo"] == "reviewgate-core"
+    assert captured_kwargs["repo"] == "reviewgate"
     assert captured_kwargs["pull_number"] == 42
     assert captured_kwargs["token"] == "ghp_test"
     err = capsys.readouterr().err

@@ -1,4 +1,4 @@
-# reviewgate-action: GitHub Action wrapper around reviewgate-core (DESIGN.md §14).
+# reviewgate-action: GitHub Action wrapper around the deterministic engine (`reviewgate.core`; DESIGN.md §14).
 #
 # This file is the Action's public contract. Inputs and their default
 # values must stay in sync with §14 of `docs/DESIGN.md`; the §24.4
@@ -6,7 +6,7 @@
 #
 # Usage (verbatim from §14):
 #
-#     - uses: leo-aa88/reviewgate-core/reviewgate-action@v1
+#     - uses: leo-aa88/reviewgate/src/reviewgate_action@v1
 #       with:
 #         github-token: ${{ secrets.GITHUB_TOKEN }}
 #         fail-on: FAIL
@@ -18,11 +18,11 @@
 # "Using actions" docs ("Referencing an action in the same
 # repository where a workflow file uses the action" and "Referencing
 # an action in a different repository"). This Action's `action.yml`
-# lives at ``reviewgate-action/action.yml``, so the documented
-# ``leo-aa88/reviewgate-core/reviewgate-action@v1`` form is the
+# lives at ``src/reviewgate_action/action.yml``, so the documented
+# ``leo-aa88/reviewgate/src/reviewgate_action@v1`` form is the
 # correct subdirectory reference -- it is not a `{owner}/{repo}@{ref}`
 # typo. The form survives the future split into the standalone
-# `reviewgate/reviewgate-action` repository because the `<path>`
+# ``reviewgate/reviewgate-action`` repository because the `<path>`
 # segment simply collapses out.
 #
 # Pipeline (issues #24 + #25; #26 adds mode coexistence + comment
@@ -30,11 +30,11 @@
 #
 #   1. setup-python pins the runtime so `reviewgate.core` and the
 #      Action's stdlib HTTP client behave identically across runners.
-#   2. `pip install` adds `reviewgate-core` (the deterministic
-#      engine) and `reviewgate-action` (the fetch + run_core
-#      wrappers). The install is editable when the Action is used
-#      from inside this repository so a local change is picked up
-#      without a re-publish.
+#   2. `pip install` adds the `reviewgate` distribution (console script
+#      `reviewgate-core` for the deterministic engine) plus the Action
+#      runtime modules on the path. The install is editable when the
+#      Action is used from inside this repository so a local change is
+#      picked up without a re-publish.
 #   3. `reviewgate_action.fetch_pr` reads `GITHUB_TOKEN`,
 #      `GITHUB_REPOSITORY`, and `GITHUB_EVENT_PATH`, calls the
 #      GitHub REST API (with documented pagination), and writes a
@@ -150,12 +150,11 @@ runs:
         REVIEWGATE_ACTION_PATH: ${{ github.action_path }}
       run: |
         set -euo pipefail
-        # The Action lives at `<repo>/reviewgate-action/`, while
-        # `pyproject.toml` (and the `reviewgate-core` package) lives
-        # at the repo root one level up. Install both packages from
-        # that root so the engine and the wrapper share the same
-        # interpreter.
-        repo_root="$(cd "${REVIEWGATE_ACTION_PATH}/.." && pwd)"
+        # The Action lives at `<repo>/src/reviewgate_action/`, while
+        # `pyproject.toml` (and the `reviewgate` wheel) lives at the
+        # repo root two levels up. Install from that root so the engine
+        # and the wrapper share the same interpreter.
+        repo_root="$(cd "${REVIEWGATE_ACTION_PATH}/../.." && pwd)"
         python -m pip install --upgrade pip
         python -m pip install "${repo_root}"
 

@@ -1,0 +1,105 @@
+name: Bug report
+description: Report a crash, incorrect verdict, or unexpected behavior in reviewgate-core or reviewgate-action.
+title: "bug: <short description>"
+labels: ["bug", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for filing a bug. Please fill in as much of the form as
+        possible. The most useful single thing you can attach is a
+        minimal `EngineInput` JSON fixture (the §10.1 schema) that
+        reproduces the issue — that lets us write a regression test
+        on the spot.
+
+        Before submitting, please check:
+
+        - [`docs/DESIGN.md`](https://github.com/leo-aa88/reviewgate/blob/main/docs/DESIGN.md)
+          to confirm the behavior really is unintended.
+        - The [open issues](https://github.com/leo-aa88/reviewgate/issues)
+          for an existing report.
+
+  - type: dropdown
+    id: component
+    attributes:
+      label: Affected component
+      options:
+        - "reviewgate-core (deterministic engine)"
+        - "reviewgate-action (GitHub Action runtime)"
+        - ".reviewgate.yml config schema"
+        - "CLI (reviewgate-core)"
+        - "Documentation (docs/, README)"
+        - "Other / not sure"
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit SHA
+      description: |
+        `pip show reviewgate | grep Version`, the Action ref you used
+        (e.g. `leo-aa88/reviewgate/src/reviewgate_action@v1`), or the
+        commit SHA you reproduced on.
+      placeholder: "0.1.0 / leo-aa88/reviewgate/src/reviewgate_action@v1 / a1b2c3d"
+    validations:
+      required: true
+
+  - type: input
+    id: python-version
+    attributes:
+      label: Python version
+      description: Output of `python --version`.
+      placeholder: "Python 3.12.5"
+    validations:
+      required: false
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: A clear, concise description of the actual behavior.
+      placeholder: |
+        Running the engine on PR <link or fixture> produced verdict X,
+        but I expected Y because <reason tied to docs/DESIGN.md §...>.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      placeholder: |
+        Per docs/DESIGN.md §10.13, this PR should be ... because ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproducer
+    attributes:
+      label: Minimal reproducer
+      description: |
+        Ideally a `.reviewgate.yml` snippet plus an `EngineInput` JSON
+        fixture (or a public PR URL we can point the engine at).
+      render: text
+    validations:
+      required: false
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs / report JSON
+      description: |
+        Paste the §10.2 `ReviewabilityReport` JSON or the relevant
+        workflow log lines. Redact secrets.
+      render: text
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: terms
+    attributes:
+      label: Code of Conduct
+      options:
+        - label: I agree to follow this project's [Code of Conduct](https://github.com/leo-aa88/reviewgate/blob/main/CODE_OF_CONDUCT.md).
+          required: true

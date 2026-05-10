@@ -109,9 +109,8 @@ _FORBIDDEN_EXACT: Final[frozenset[str]] = (
 # --- AST helpers ------------------------------------------------------------
 
 
-_CORE_DIR: Final[Path] = (
-    Path(__file__).resolve().parent.parent / "src" / "reviewgate" / "core"
-)
+_REPO_ROOT: Final[Path] = Path(__file__).resolve().parent.parent
+_CORE_DIR: Final[Path] = _REPO_ROOT / "src" / "reviewgate" / "core"
 
 
 def _module_is_forbidden(module: str) -> bool:
@@ -179,7 +178,7 @@ def test_core_module_imports_only_allowed_modules(py_file: Path) -> None:
         {imp for imp in _imports_in_file(py_file) if _module_is_forbidden(imp)},
     )
     assert not offenders, (
-        f"{py_file.relative_to(_CORE_DIR.parent.parent.parent)} imports "
+        f"{py_file.relative_to(_REPO_ROOT)} imports "
         f"forbidden module(s) {offenders!r}; see CONTRIBUTING.md "
         f"\u00b6 'reviewgate-core purity boundary' (DESIGN.md \u00a74.1)."
     )
@@ -194,7 +193,7 @@ def test_runtime_dependencies_stay_pure() -> None:
 
     import tomllib
 
-    pyproject_path = _CORE_DIR.parent.parent.parent / "pyproject.toml"
+    pyproject_path = _REPO_ROOT / "pyproject.toml"
     pyproject = tomllib.loads(pyproject_path.read_text(encoding="utf-8"))
     deps = pyproject.get("project", {}).get("dependencies", [])
     offenders: list[str] = []

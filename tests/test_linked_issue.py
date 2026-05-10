@@ -41,13 +41,13 @@ from reviewgate.core.linked_issue import (
             id="linear-url",
         ),
         pytest.param(
-            "https://github.com/leo-aa88/reviewgate-core/issues/12",
-            "https://github.com/leo-aa88/reviewgate-core/issues/12",
+            "https://github.com/leo-aa88/reviewgate/issues/12",
+            "https://github.com/leo-aa88/reviewgate/issues/12",
             id="github-issue-url",
         ),
         pytest.param(
-            "https://github.com/leo-aa88/reviewgate-core/pull/77",
-            "https://github.com/leo-aa88/reviewgate-core/pull/77",
+            "https://github.com/leo-aa88/reviewgate/pull/77",
+            "https://github.com/leo-aa88/reviewgate/pull/77",
             id="github-pull-url",
         ),
     ],

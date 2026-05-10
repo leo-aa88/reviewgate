@@ -4,7 +4,7 @@ Implements issue #24 of Milestone 3. This module is the open-source
 GitHub Action's I/O boundary: it reads the GitHub REST API and writes
 a JSON document matching :class:`reviewgate.core.schemas.EngineInput`
 to disk (or stdout) so the next step in
-``reviewgate-action/action.yml`` can pipe it straight into the pure
+``src/reviewgate_action/action.yml`` can pipe it straight into the pure
 deterministic engine.
 
 Design choices:

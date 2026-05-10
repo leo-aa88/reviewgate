@@ -31,7 +31,8 @@ can fix it before disclosure.
 Please include:
 
 * a description of the issue and the affected component
-  (`reviewgate-core` engine, `reviewgate-action` runtime, or both),
+  (`reviewgate-core` engine, `reviewgate-action` runtime, hosted App
+  worker, or other published component),
 * the version, commit SHA, or release tag where you reproduced it,
 * a minimal reproducer (ideally an `EngineInput` JSON fixture or the
   exact GitHub Action workflow input),
@@ -69,15 +70,17 @@ In scope for security reports:
   or `reviewgate_action.post_comment`.
 * Any case where `reviewgate-core` performs an operation forbidden by
   the §4.1 boundary (network call, FS write, subprocess, etc.).
+* The hosted GitHub App, webhook workers, and hosted LLM integration
+  **once shipped as open-source code** from this repository or another
+  repo documented in [`docs/DESIGN.md` §19](docs/DESIGN.md) under the
+  same license — use the **same private reporting channels** as above;
+  do not post exploit details in public issues.
 
 Out of scope (please do not open a security report for these):
 
 * Vulnerabilities in third-party dependencies that have an upstream
   CVE — open a regular issue or wait for our automated dependency
   updates.
-* Hosted ReviewGate App and hosted LLM layer — those live in a
-  separate, private repository and have their own contact path
-  documented in `docs/ONBOARDING.md`.
 * "The engine produced WARN/FAIL when I expected PASS" — that's a
   heuristic-tuning issue; please file a regular bug report.
 

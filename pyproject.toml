@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "reviewgate"
 version = "0.1.0"
-description = "Deterministic pull-request reviewability engine for ReviewGate (open-source core; see docs/DESIGN.md)."
+description = "Deterministic pull-request reviewability engine for ReviewGate (open source; see docs/DESIGN.md)."
 readme = "README.md"
 requires-python = ">=3.12"
 license = "Apache-2.0"

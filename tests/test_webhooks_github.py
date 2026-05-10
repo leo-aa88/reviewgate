@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -276,6 +276,61 @@ def test_github_webhook_pull_request_invalid_json_returns_400(
                 headers={
                     "x-hub-signature-256": _signature(body, "s"),
                     "x-github-delivery": "d",
+                    "x-github-event": "pull_request",
+                },
+            )
+    assert response.status_code == 400
+    send.assert_not_called()
+
+
+def test_github_webhook_duplicate_delivery_returns_202_without_enqueue(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A duplicate ``github_delivery_id`` short-circuits before ``.send`` (§13.3)."""
+
+    monkeypatch.setenv("REVIEWGATE_GITHUB_WEBHOOK_SECRET", "s")
+    monkeypatch.setenv("REVIEWGATE_REDIS_URL", "redis://127.0.0.1:6379/0")
+    body = _PR_OPENED_BODY
+    with patch(
+        "reviewgate.app.webhooks.github.run_in_threadpool",
+        new=AsyncMock(return_value="duplicate"),
+    ):
+        with patch(
+            "reviewgate.app.analysis.broker_install.RedisBroker",
+            lambda **_: StubBroker(),
+        ):
+            with patch(
+                "reviewgate.app.analysis.jobs.run_pr_analysis_stub.send",
+            ) as send:
+                with TestClient(create_app()) as client:
+                    response = client.post(
+                        "/webhooks/github",
+                        content=body,
+                        headers={
+                            "x-hub-signature-256": _signature(body, "s"),
+                            "x-github-delivery": "dup-1",
+                            "x-github-event": "pull_request",
+                        },
+                    )
+    assert response.status_code == 202
+    send.assert_not_called()
+
+
+def test_github_webhook_missing_delivery_id_returns_400(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Enqueueable ``pull_request`` events require ``X-GitHub-Delivery``."""
+
+    monkeypatch.setenv("REVIEWGATE_GITHUB_WEBHOOK_SECRET", "secret")
+    monkeypatch.setenv("REVIEWGATE_REDIS_URL", "redis://127.0.0.1:6379/0")
+    body = _PR_OPENED_BODY
+    with patch("reviewgate.app.analysis.jobs.run_pr_analysis_stub.send") as send:
+        with TestClient(create_app()) as client:
+            response = client.post(
+                "/webhooks/github",
+                content=body,
+                headers={
+                    "x-hub-signature-256": _signature(body, "secret"),
                     "x-github-event": "pull_request",
                 },
             )

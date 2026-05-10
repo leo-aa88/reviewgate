@@ -8,7 +8,8 @@ a stub job; ``edited`` enqueues only when ``changes`` touches ``title``,
 ``body``, or ``base`` (§13.2). The actor module is imported
 only on the enqueue path after
 :func:`reviewgate.app.analysis.broker_install.install_redis_broker` runs.
-Payload persistence and delivery dedupe are handled in later issues (#34, #50).
+Delivery dedupe uses ``webhook_deliveries`` when ``REVIEWGATE_DATABASE_URL`` is
+set (issue #34). Payload persistence is handled in later issues (#50).
 """
 
 from __future__ import annotations
@@ -20,9 +21,11 @@ from typing import Final
 
 from fastapi import APIRouter, HTTPException, Request, Response, status
 from pydantic import SecretStr
+from starlette.concurrency import run_in_threadpool
 
 from reviewgate.app.analysis.broker_install import install_redis_broker
 from reviewgate.app.settings import AppSettings
+from reviewgate.app.webhooks.dedupe import claim_github_webhook_delivery
 
 router = APIRouter()
 
@@ -39,7 +42,7 @@ _PULL_REQUEST_EDIT_RELEVANT_CHANGES: Final[frozenset[str]] = frozenset(
 )
 
 # Lifecycle probes GitHub sends during setup or installation management; no
-# analysis job (§13.2 installation webhooks land here until issue #34+).
+# analysis job.
 _ACK_EVENTS_NO_QUEUE: Final[frozenset[str]] = frozenset(
     {"ping", "installation", "installation_repositories"},
 )
@@ -117,11 +120,26 @@ async def github_webhook(request: Request) -> Response:
         if not _PULL_REQUEST_EDIT_RELEVANT_CHANGES.intersection(changes):
             return Response(status_code=status.HTTP_204_NO_CONTENT)
 
+    if not delivery_id.strip():
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            detail="Missing X-GitHub-Delivery",
+        )
+
     if settings.redis_url is None:
         raise HTTPException(
             status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Redis URL is not configured for job enqueue",
         )
+
+    claim_result = await run_in_threadpool(
+        claim_github_webhook_delivery,
+        settings,
+        delivery_id=delivery_id,
+        event_name=event_name,
+    )
+    if claim_result == "duplicate":
+        return Response(status_code=status.HTTP_202_ACCEPTED)
 
     install_redis_broker(settings)
 

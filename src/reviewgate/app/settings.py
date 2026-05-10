@@ -79,3 +79,10 @@ class AppSettings(BaseSettings):
             "persistence (pre-issue-#36 behavior) for emergency rollback."
         ),
     )
+    github_app_install_url: str | None = Field(
+        default=None,
+        description=(
+            "Public HTTPS URL for the GitHub App “Install” flow, shown on the "
+            "§5.1 landing page (issue #38)."
+        ),
+    )

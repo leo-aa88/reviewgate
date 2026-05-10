@@ -25,13 +25,28 @@
 # `reviewgate/reviewgate-action` repository because the `<path>`
 # segment simply collapses out.
 #
-# The actual fetch / core / comment / fail-on logic lands in the
-# follow-on issues (#24, #25, #26). This scaffold validates the inputs
-# and then **fails closed** with `::error::` + `exit 1` so a workflow
-# that names this Action as a required status check cannot silently
-# mark a PR mergeable while the §14 review pipeline is still missing.
-# The only successful exit path is the input-validation error path
-# (exit 2), which still proves wrong inputs are caught early.
+# Pipeline (issues #24 + #25; #26 adds mode coexistence + comment
+# upsert):
+#
+#   1. setup-python pins the runtime so `reviewgate.core` and the
+#      Action's stdlib HTTP client behave identically across runners.
+#   2. `pip install` adds `reviewgate-core` (the deterministic
+#      engine) and `reviewgate-action` (the fetch + run_core
+#      wrappers). The install is editable when the Action is used
+#      from inside this repository so a local change is picked up
+#      without a re-publish.
+#   3. `reviewgate_action.fetch_pr` reads `GITHUB_TOKEN`,
+#      `GITHUB_REPOSITORY`, and `GITHUB_EVENT_PATH`, calls the
+#      GitHub REST API (with documented pagination), and writes a
+#      §10.1 EngineInput JSON document.
+#   4. `reviewgate_action.run_core` loads `.reviewgate.yml`, runs
+#      `reviewgate.core.engine.analyze`, prints the report to
+#      stdout, writes a Markdown summary to `$GITHUB_STEP_SUMMARY`,
+#      and applies the §14 `fail-on` policy (exit 1 at threshold,
+#      exit 0 below it; `never` always exits 0).
+#
+# `post-comment` and `mode` are accepted today and validated, but
+# the actual upsert / coexistence behaviour lands in #26.
 
 name: ReviewGate
 description: >-
@@ -48,8 +63,10 @@ inputs:
     description: >-
       GitHub token used to fetch PR metadata and (when `post-comment`
       is true) post the summary comment. The token needs at minimum
-      `pull-requests: read`; granting `pull-requests: write` is required
-      for `post-comment: true`. Required; no default per §14.
+      `pull-requests: read` and `contents: read` to fetch PR metadata
+      and the paginated changed-files list; granting
+      `pull-requests: write` is required for `post-comment: true`.
+      Required; no default per §14.
     required: true
 
   fail-on:
@@ -63,10 +80,10 @@ inputs:
   post-comment:
     description: >-
       When `true`, post or upsert the §13 ReviewGate marker comment on
-      the PR. When `false`, the Action only writes the report to the
-      job summary (the `reviewability` and `report-json` step outputs
-      arrive together with the runtime in #25; the scaffold does not
-      emit any step outputs yet). Default `true` per §14.
+      the PR. The comment-upsert behaviour itself lands in #26; today
+      this Action always writes the report to the job summary and to
+      the `report-json` step output regardless of this flag. Default
+      `true` per §14.
     required: false
     default: "true"
 
@@ -75,36 +92,77 @@ inputs:
       Coexistence mode with the hosted ReviewGate App (§14.1). One of
       `auto`, `action`, or `quiet`. `auto` (the default per §14)
       defers to `.reviewgate.yml` and stays quiet when the file pins
-      `mode: app`.
+      `mode: app`. The mode-aware skip behaviour lands in #26; this
+      Action accepts and validates the input today.
     required: false
     default: auto
 
-# Note on `outputs`: the §14 design intends two public outputs --
-# `reviewability` (the §10.13 verdict) and `report-json` (the §10.2
-# report). They are intentionally NOT declared on this scaffold
-# because composite outputs must reference a real step output, and
-# this scaffold cannot yet produce a verdict or a report. Wiring the
-# two outputs lands together with the core runtime in #25 so that
-# every consumer that copy-pastes `fromJSON(steps.x.outputs.report-json)`
-# always receives valid JSON. See `reviewgate-action/README.md` for
-# the planned output contract.
+  python-version:
+    description: >-
+      Python version pin for `actions/setup-python`. The §15 stack
+      requires Python 3.12+; consumers can override to a newer
+      patch release without editing the Action. Default `3.12`.
+    required: false
+    default: "3.12"
 
-# §14 places the runtime behind `runs.using: composite` so the Action
-# stays in a single repository (no Docker image, no Node packaging).
-# This scaffold ships a placeholder step that validates inputs only;
-# the real fetch + core + comment pipeline is implemented incrementally
-# in issues #24 (PR fetch), #25 (core invocation + fail-on), and #26
-# (mode coexistence + comment upsert).
+  working-directory:
+    description: >-
+      Workspace root used to look up `.reviewgate.yml`. Defaults to
+      `$GITHUB_WORKSPACE`, the repository checkout root populated by
+      `actions/checkout@v4`. Override only for non-standard checkouts
+      (e.g. monorepo subdirectory pinned via `actions/checkout`'s
+      `path:` input).
+    required: false
+    default: ""
+
+outputs:
+  reviewability:
+    description: >-
+      §10.13 verdict from the deterministic engine. One of `PASS`,
+      `WARN`, or `FAIL`. Empty string when the run failed before the
+      engine produced a report (e.g. invalid input, missing token).
+    value: ${{ steps.run.outputs.reviewability }}
+
+  report-json:
+    description: >-
+      §10.2 ReviewabilityReport as a single-line JSON document.
+      Consumers can parse it with `${{ fromJSON(steps.x.outputs.report-json) }}`
+      to drive downstream steps. Empty string when the run failed
+      before the engine produced a report.
+    value: ${{ steps.run.outputs.report-json }}
+
 runs:
   using: composite
   steps:
-    - id: run
-      name: ReviewGate (scaffold -- fails closed until #24-#26)
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ inputs.python-version }}
+
+    - name: Install reviewgate-action runtime
       shell: bash
       env:
+        REVIEWGATE_ACTION_PATH: ${{ github.action_path }}
+      run: |
+        set -euo pipefail
+        # The Action lives at `<repo>/reviewgate-action/`, while
+        # `pyproject.toml` (and the `reviewgate-core` package) lives
+        # at the repo root one level up. Install both packages from
+        # that root so the engine and the wrapper share the same
+        # interpreter.
+        repo_root="$(cd "${REVIEWGATE_ACTION_PATH}/.." && pwd)"
+        python -m pip install --upgrade pip
+        python -m pip install "${repo_root}"
+
+    - id: run
+      name: Run ReviewGate
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ inputs.github-token }}
         REVIEWGATE_FAIL_ON: ${{ inputs.fail-on }}
         REVIEWGATE_POST_COMMENT: ${{ inputs.post-comment }}
         REVIEWGATE_MODE: ${{ inputs.mode }}
+        REVIEWGATE_WORKING_DIRECTORY: ${{ inputs.working-directory }}
       run: |
         set -euo pipefail
 
@@ -132,12 +190,42 @@ runs:
             ;;
         esac
 
-        # Fail-closed posture: the scaffold cannot run the §14 review
-        # pipeline yet (PR fetch, core invocation, comment, fail-on
-        # policy land in #24-#26). Exiting non-zero here ensures a
-        # workflow that names this Action as a required check cannot
-        # silently report success, which would bypass branch
-        # protection. The READMEs both warn that the scaffold is not
-        # runnable until the runtime PRs land.
-        echo "::error::reviewgate-action scaffold is not runnable yet (issue #23). Inputs validate correctly (fail-on=${REVIEWGATE_FAIL_ON}, post-comment=${REVIEWGATE_POST_COMMENT}, mode=${REVIEWGATE_MODE}); the review runtime (PR fetch, core invocation, fail-on policy, comment) lands in issues #24-#26. Do not pin this Action as a required status check until those issues close."
-        exit 1
+        workdir="${REVIEWGATE_WORKING_DIRECTORY:-${GITHUB_WORKSPACE}}"
+
+        engine_input="$(mktemp -t reviewgate-input.XXXXXX.json)"
+        report_json="$(mktemp -t reviewgate-report.XXXXXX.json)"
+        trap 'rm -f "${engine_input}" "${report_json}"' EXIT
+
+        python -m reviewgate_action.fetch_pr --output "${engine_input}"
+
+        set +e
+        python -m reviewgate_action.run_core \
+          --input "${engine_input}" \
+          --workspace "${workdir}" \
+          --fail-on "${REVIEWGATE_FAIL_ON}" \
+          --output-json "${report_json}" \
+          > /dev/null
+        run_core_exit=$?
+        set -e
+
+        # Surface the §10.13 verdict and the full §10.2 report as
+        # step outputs so downstream steps can branch on them. The
+        # report goes in compact form because GitHub's
+        # `GITHUB_OUTPUT` does not handle multi-line JSON cleanly
+        # without explicit heredoc handling, and downstream
+        # `fromJSON` parses single-line JSON without issue.
+        if [ -s "${report_json}" ]; then
+          reviewability="$(python -c 'import json,sys; print(json.load(open(sys.argv[1]))["reviewability"])' "${report_json}")"
+          report_oneline="$(python -c 'import json,sys; print(json.dumps(json.load(open(sys.argv[1]))))' "${report_json}")"
+          {
+            echo "reviewability=${reviewability}"
+            echo "report-json=${report_oneline}"
+          } >> "${GITHUB_OUTPUT}"
+        else
+          {
+            echo "reviewability="
+            echo "report-json="
+          } >> "${GITHUB_OUTPUT}"
+        fi
+
+        exit "${run_core_exit}"

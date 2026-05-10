@@ -1,22 +1,31 @@
 # reviewgate-action
 
-GitHub Action wrapper around [`reviewgate-core`](../) that runs the deterministic reviewability engine on a pull request and (optionally) posts the §13 summary comment. See `docs/DESIGN.md` §14 for the full design.
+GitHub Action wrapper around [`reviewgate-core`](../) that runs the deterministic reviewability engine on a pull request and (optionally, once #26 lands) posts the §13 summary comment. See `docs/DESIGN.md` §14 for the full design.
 
-> **Status: scaffold (issue #23). Do not pin as a required status check yet.** The composite step validates inputs and then **exits non-zero** with `::error::` so a workflow that names this Action as a required check cannot silently report success while the review pipeline is missing. The fetch step (`reviewgate_action.fetch_pr`) landed with #24; core invocation + `fail-on` (#25) and mode coexistence + comment (#26) are the remaining follow-on issues. The input contract below is final; only the runtime wiring is missing.
+> **Status: runtime preview (issues #24 + #25 landed; #26 pending).** The Action fetches PR metadata, loads `.reviewgate.yml`, runs the deterministic engine, prints the §10.2 report, and applies the §14 `fail-on` policy. The optional PR-comment upsert and `mode` coexistence skip behaviour land in #26; the `post-comment` and `mode` inputs are accepted and validated today but are otherwise no-ops. Pinning the Action as a required status check is now safe: the engine result drives the workflow exit code via `fail-on`.
 
 ## Implementation status
 
 | Step | Module | Issue | Lands |
 | ---- | ------ | ----- | ----- |
 | Fetch PR metadata + paginated files | [`reviewgate_action.fetch_pr`](src/reviewgate_action/fetch_pr.py) | #24 | done |
-| Load `.reviewgate.yml`, run core, apply `fail-on` | (TBD) | #25 | pending |
+| Load `.reviewgate.yml`, run core, apply `fail-on` | [`reviewgate_action.run_core`](src/reviewgate_action/run_core.py) | #25 | done |
 | Mode coexistence + PR comment upsert | (TBD) | #26 | pending |
 
-`reviewgate_action.fetch_pr` is invokable today as `python -m reviewgate_action.fetch_pr --output engine_input.json`. It reads `GITHUB_TOKEN`, `GITHUB_REPOSITORY`, and `GITHUB_EVENT_PATH` from the environment (all set automatically by GitHub Actions for `pull_request` events) and emits a §10.1 `EngineInput` JSON document validated against the deterministic engine's schema.
+Local invocation outside Actions:
+
+```bash
+GITHUB_TOKEN=ghp_xxx \
+GITHUB_REPOSITORY=owner/repo \
+GITHUB_EVENT_PATH=/path/to/pull_request_event.json \
+python -m reviewgate_action.fetch_pr --output engine.json
+python -m reviewgate_action.run_core --input engine.json --workspace . \
+    --fail-on FAIL --output-json report.json
+```
 
 ## Usage
 
-The §14 reference snippet (intended for use once #24–#26 land; running it against the current scaffold will fail the step on purpose):
+The §14 reference workflow:
 
 ```yaml
 name: ReviewGate
@@ -28,6 +37,9 @@ on:
 jobs:
   reviewgate:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
     steps:
       - uses: actions/checkout@v4
       - uses: leo-aa88/reviewgate-core/reviewgate-action@v1
@@ -45,35 +57,32 @@ When this monorepo is split per `docs/DESIGN.md` §14 ("Repository: `github.com/
 
 | Name | Required | Default | Description |
 | ---- | -------- | ------- | ----------- |
-| `github-token` | yes | — | Token used to fetch PR metadata and (when `post-comment: true`) post the summary comment. Needs `pull-requests: read` and `contents: read` (`reviewgate_action.fetch_pr` calls `GET /repos/{owner}/{repo}/pulls/{n}` and the paginated `/files` endpoint); `pull-requests: write` is additionally required for `post-comment: true`. |
-| `fail-on` | no | `FAIL` | Verdict at or above which the workflow exits non-zero. One of `PASS`, `WARN`, `FAIL`, `never`. |
-| `post-comment` | no | `"true"` | Whether to upsert the §13 ReviewGate marker comment on the PR. |
-| `mode` | no | `auto` | Coexistence with the hosted ReviewGate App (§14.1). One of `auto`, `action`, `quiet`. `auto` defers to `.reviewgate.yml`. |
+| `github-token` | yes | — | Token used to fetch PR metadata and (when `post-comment: true`, in #26) post the summary comment. Needs `pull-requests: read` and `contents: read` (`reviewgate_action.fetch_pr` calls `GET /repos/{owner}/{repo}/pulls/{n}` and the paginated `/files` endpoint); `pull-requests: write` will additionally be required for the comment-upsert path landing in #26. |
+| `fail-on` | no | `FAIL` | Verdict at or above which the workflow exits non-zero. One of `PASS`, `WARN`, `FAIL`, `never`. `never` always exits 0. |
+| `post-comment` | no | `"true"` | Whether to upsert the §13 ReviewGate marker comment on the PR. Accepted today but no-op until #26 lands the comment-upsert step. |
+| `mode` | no | `auto` | Coexistence with the hosted ReviewGate App (§14.1). One of `auto`, `action`, `quiet`. `auto` defers to `.reviewgate.yml`. The skip behaviour itself lands in #26. |
+| `python-version` | no | `3.12` | Python version pin handed to `actions/setup-python`. The §15 stack requires 3.12+; override only to bump the patch release. |
+| `working-directory` | no | `""` | Workspace root used to look up `.reviewgate.yml`. Defaults to `$GITHUB_WORKSPACE`. Override only for non-standard checkouts (e.g. monorepo subdirectory pinned via `actions/checkout`'s `path:` input). |
 
-## Outputs (planned -- arrive with the runtime in #25)
-
-The §14 design intends two public outputs once the runtime lands:
+## Outputs
 
 | Name | Description |
 | ---- | ----------- |
-| `reviewability` | The §10.13 baseline verdict (`PASS` / `WARN` / `FAIL`). Empty when the Action did not run (e.g. `mode: quiet`). |
-| `report-json` | The full §10.2 report as a JSON string. Empty when the Action did not run. Consumers should parse with `fromJSON()`. |
-
-These are intentionally **not** declared on the scaffold's `action.yml`: composite outputs must reference a real step output, and emitting empty placeholders would silently break `if: steps.x.outputs.reviewability == 'PASS'` checks and crash `fromJSON(steps.x.outputs.report-json)` consumers. Both outputs are wired together with the core runtime in #25 so every consumer always receives a valid value.
+| `reviewability` | The §10.13 baseline verdict (`PASS` / `WARN` / `FAIL`). Empty when the run failed before the engine produced a report (invalid input, missing token, etc.). |
+| `report-json` | The full §10.2 report as a single-line JSON string. Empty when the run failed before the engine produced a report. Consumers parse with `${{ fromJSON(steps.x.outputs.report-json) }}` to drive downstream steps. |
 
 ## Coexistence with the hosted App (§14.1)
 
 `.reviewgate.yml` carries a `mode` field that controls which surface posts comments and status checks:
 
 ```yaml
-# .reviewgate.yml
 mode: app # app | action | both
 ```
 
-| `.reviewgate.yml` `mode` | Action default behaviour |
-| ------------------------ | ------------------------ |
+| `.reviewgate.yml` `mode` | Action default behaviour (after #26) |
+| ------------------------ | ------------------------------------ |
 | `app` | Action stays quiet (skips comment and status check). |
 | `action` | Action posts comment and status check; hosted App skips. |
 | `both` | Both run; the Action namespaces its status check name to avoid collision. |
 
-The Action's `mode` input overrides the YAML when set explicitly to `action` or `quiet`. `mode: auto` (the default) is the only value that defers to `.reviewgate.yml`.
+The Action's `mode` input overrides the YAML when set explicitly to `action` or `quiet`. `mode: auto` (the default) is the only value that defers to `.reviewgate.yml`. The skip-on-`mode: app` behaviour itself lands in #26; until then the Action runs the engine regardless of `mode`.

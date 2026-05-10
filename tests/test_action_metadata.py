@@ -1,15 +1,21 @@
-"""Contract tests for the reviewgate-action scaffold (issue #23, §14).
+"""Contract tests for the reviewgate-action runtime (issue #25, §14).
 
 The Action's `action.yml` is the public surface consumers reference
 from their workflows. These tests lock in the §14 input contract --
 required vs optional, default values, and the mode/fail-on/post-comment
-enums the runtime branches on -- so a refactor of the scaffold cannot
-silently rename an input or change a default. They also assert that
-the §14 reference snippet really is reproduced verbatim in the
-top-level README and the per-action README, satisfying the second
-acceptance criterion of #23.
+enums the runtime branches on -- so a refactor cannot silently rename
+an input or change a default. They also assert that the §14 reference
+snippet really is reproduced verbatim in the top-level README and the
+per-action README.
 
-Pure: no I/O beyond reading text files in the repo.
+After #25 the Action carries real runtime steps (setup-python, install,
+fetch, run_core); these tests pin the composite shape and exercise the
+input-validation enum branches end to end without invoking the GitHub
+API. The pure runtime behaviour itself is covered by
+:mod:`tests.test_run_core` and :mod:`tests.test_fetch_pr`.
+
+Pure: no I/O beyond reading text files in the repo and running a small
+bash script in a temp dir.
 """
 
 from __future__ import annotations
@@ -29,16 +35,22 @@ _TOP_README: Final[Path] = _REPO_ROOT / "README.md"
 
 # §14 inputs and their default values. Pinned here so a typo or a
 # silent rename in `action.yml` fails this test instead of leaking out
-# to consumers.
+# to consumers. `python-version` and `working-directory` were added in
+# #25 to expose the setup-python pin and the workspace root override
+# respectively; both are optional with sensible defaults.
 _REQUIRED_INPUTS: Final[frozenset[str]] = frozenset({"github-token"})
 _OPTIONAL_INPUT_DEFAULTS: Final[dict[str, str]] = {
     "fail-on": "FAIL",
     "post-comment": "true",
     "mode": "auto",
+    "python-version": "3.12",
+    "working-directory": "",
 }
 _ALL_INPUTS: Final[frozenset[str]] = (
     _REQUIRED_INPUTS | frozenset(_OPTIONAL_INPUT_DEFAULTS)
 )
+
+_DECLARED_OUTPUTS: Final[frozenset[str]] = frozenset({"reviewability", "report-json"})
 
 
 @pytest.fixture(scope="module")
@@ -76,12 +88,7 @@ def test_action_metadata_declares_name_and_description(
 def test_action_metadata_inputs_match_design_doc(
     action_metadata: dict[str, Any],
 ) -> None:
-    """All §14 inputs are declared and no surprise inputs leak in.
-
-    Catches drift between `docs/DESIGN.md` §14 and the published Action
-    contract: a renamed input here would silently break every consumer
-    that copy-pasted the §14 snippet.
-    """
+    """All §14 inputs are declared and no surprise inputs leak in."""
 
     inputs = action_metadata.get("inputs")
     assert isinstance(inputs, dict), "action.yml must declare an `inputs` mapping"
@@ -145,9 +152,7 @@ def test_action_runs_uses_composite_per_design_doc(
     """§14 keeps the Action in a single repo (no Docker, no Node).
 
     Composite is the only `using` value that lets a YAML-defined Action
-    invoke shell + Python without a separate runtime image; this test
-    locks that decision in so a refactor cannot accidentally turn the
-    Action into a Docker action and add a build step to every consumer.
+    invoke shell + Python without a separate runtime image.
     """
 
     runs = action_metadata.get("runs")
@@ -157,91 +162,72 @@ def test_action_runs_uses_composite_per_design_doc(
     )
     steps = runs.get("steps")
     assert isinstance(steps, list) and steps, (
-        "runs.steps must be a non-empty list (scaffold step counts)"
+        "runs.steps must be a non-empty list"
     )
 
 
-def test_scaffold_step_fails_closed_until_runtime_lands(
+def test_action_runs_pins_python_via_setup_python(
     action_metadata: dict[str, Any],
 ) -> None:
-    """The scaffold's composite step must exit non-zero (fail-closed).
+    """The runtime requires Python 3.12+ (§15); pin via setup-python.
 
-    Branch-protection safety guard: a workflow that names this Action
-    as a required status check on a PR must not be able to mark that
-    PR mergeable while the review runtime is still missing. Until
-    #24-#26 land, the scaffold step has to terminate with a clear
-    ``::error::`` and ``exit 1``. This test asserts the step's shell
-    body still contains both markers; if a future change re-enables
-    the no-op success path before the runtime is wired, the suite
-    fails before that change can ship.
+    Without an explicit setup-python step, a self-hosted runner could
+    expose an older Python and the engine would fail to import on
+    PEP 604 unions. Pinning via `actions/setup-python@v5` matches the
+    §15 stack and gives consumers a single knob (`python-version`) to
+    upgrade.
     """
 
     steps = action_metadata["runs"]["steps"]
-    scaffold_step = steps[0]
-    assert isinstance(scaffold_step, dict)
-    body = scaffold_step.get("run")
-    assert isinstance(body, str), "scaffold step must have a shell `run` body"
-
-    assert "::error::" in body, (
-        "scaffold must emit an ::error:: line so the failure is visible "
-        "in PR check summaries"
+    setup_steps = [
+        s for s in steps
+        if isinstance(s, dict) and isinstance(s.get("uses"), str)
+        and s["uses"].startswith("actions/setup-python@")
+    ]
+    assert setup_steps, (
+        "composite must include `actions/setup-python@v5` so the engine "
+        "runs on the §15-pinned interpreter"
     )
-    assert "exit 1" in body, (
-        "scaffold must `exit 1` to fail the workflow check (fail-closed) "
-        "until #24-#26 wire the runtime; otherwise consumers that pin "
-        "this Action as a required check could silently merge without "
-        "review."
+    spec = setup_steps[0]
+    with_block = spec.get("with")
+    assert isinstance(with_block, dict)
+    pin = with_block.get("python-version")
+    assert isinstance(pin, str) and "${{ inputs.python-version }}" in pin, (
+        "setup-python must read its version from the `python-version` "
+        f"input so consumers can override the default; got {pin!r}"
     )
 
 
-def test_action_readme_warns_scaffold_is_not_runnable() -> None:
-    """Both READMEs must warn the scaffold is not runnable yet.
-
-    Drift catcher: the §14 snippet remains in both READMEs as
-    documentation, but the warning above it is what tells a copy-paste
-    adopter not to wire the scaffold into branch protection. Removing
-    the warning while leaving the snippet would invite the exact
-    silent-bypass risk the fail-closed step exists to prevent.
-    """
-
-    for path in (_TOP_README, _ACTION_README):
-        text = path.read_text(encoding="utf-8")
-        lower = text.lower()
-        assert "scaffold" in lower, (
-            f"{path.name} must mention the scaffold status"
-        )
-        assert "do not pin" in lower or "not runnable" in lower, (
-            f"{path.name} must warn that the scaffold is not safe to pin "
-            "as a required status check yet"
-        )
-
-
-def test_scaffold_does_not_declare_unimplemented_outputs(
+def test_action_declares_runtime_outputs(
     action_metadata: dict[str, Any],
 ) -> None:
-    """Outputs are intentionally absent until the runtime can fill them.
+    """The §14 outputs (`reviewability`, `report-json`) must be wired.
 
-    Composite outputs must reference a real step output. Emitting empty
-    placeholders for `reviewability` / `report-json` would silently
-    break ``if: steps.x.outputs.reviewability == 'PASS'`` checks and
-    crash ``fromJSON(steps.x.outputs.report-json)`` consumers. Both
-    outputs are wired in #25 alongside the core runtime; this guard
-    fails if a future change reintroduces an empty-string output
-    before the runtime is ready.
+    Composite outputs must reference a real step output expression.
+    An empty-string `value:` would silently break
+    ``if: steps.x.outputs.reviewability == 'PASS'`` checks and crash
+    ``fromJSON(steps.x.outputs.report-json)`` consumers, so this test
+    asserts the references are non-empty *and* point at the run step
+    that produces them.
     """
 
     outputs = action_metadata.get("outputs")
-    if outputs is None:
-        return
-    assert isinstance(outputs, dict)
+    assert isinstance(outputs, dict), (
+        "action.yml must declare the §14 `outputs` block now that the "
+        "runtime can fill it (#25)"
+    )
+    assert frozenset(outputs.keys()) == _DECLARED_OUTPUTS, (
+        f"outputs drifted from §14: got {sorted(outputs)}, "
+        f"expected {sorted(_DECLARED_OUTPUTS)}"
+    )
     for name, spec in outputs.items():
         assert isinstance(spec, dict), f"{name}: output spec must be a mapping"
         value = spec.get("value")
         assert isinstance(value, str) and value.strip(), (
-            f"{name}: declared output must be wired to a non-empty step "
-            "expression; do not declare outputs that resolve to an empty "
-            "string -- that breaks fromJSON() and equality checks for "
-            "consumers."
+            f"{name}: output `value:` must be a non-empty step expression"
+        )
+        assert "steps.run.outputs" in value, (
+            f"{name}: output must reference the `run` step; got {value!r}"
         )
 
 
@@ -279,15 +265,7 @@ _USES_LINE_RE: Final[re.Pattern[str]] = re.compile(
 
 
 def _uses_refs_in_yaml_blocks(readme_text: str) -> list[str]:
-    """Return every ``- uses: …`` value inside a fenced ```yaml block.
-
-    Centralized so tests assert against the *executable* snippet a
-    consumer would copy-paste, not against a stray prose mention.
-    A bot's earlier critique was right that asserting on the first
-    occurrence in the README would silently pass if the snippet
-    drifted while a backticked prose mention stayed correct; this
-    helper confines the search to fenced YAML.
-    """
+    """Return every ``- uses: …`` value inside a fenced ```yaml block."""
 
     refs: list[str] = []
     for block in _FENCED_USES_RE.finditer(readme_text):
@@ -304,10 +282,7 @@ def test_action_subdirectory_path_in_uses_resolves_to_real_action_yml() -> None:
     ``leo-aa88/reviewgate-core/<path>@<ref>`` reference, and assert
     ``<repo>/<path>/action.yml`` exists on disk. Catches the
     foot-gun of documenting a path that does not match the actual
-    repository layout (would otherwise only fail at consumer
-    runtime with "Can't find 'action.yml'") *and* refuses to be
-    fooled by a backticked prose mention -- the snippet itself is
-    what consumers copy.
+    repository layout.
     """
 
     readme = _TOP_README.read_text(encoding="utf-8")
@@ -326,9 +301,7 @@ def test_action_subdirectory_path_in_uses_resolves_to_real_action_yml() -> None:
         resolved = _REPO_ROOT / path_segment / "action.yml"
         assert resolved.is_file(), (
             f"README documents `uses: {ref}` but "
-            f"{resolved.relative_to(_REPO_ROOT)} does not exist; the "
-            "subdirectory `uses:` form requires a real action.yml at "
-            "that path"
+            f"{resolved.relative_to(_REPO_ROOT)} does not exist"
         )
         assert resolved == _ACTION_YML, (
             f"documented `uses: {ref}` resolves to "
@@ -338,15 +311,11 @@ def test_action_subdirectory_path_in_uses_resolves_to_real_action_yml() -> None:
 
 
 # --- shell validation branches (composite step is bash, so the input ----
-# enum branches are exercised by running the same script body the
-# Action would run, under the same env-var contract.
+# enum branches are exercised by running the same script body the Action
+# would run, under the same env-var contract.
 
-_SCAFFOLD_BASH_BODY: Final[str] = ""
-"""Filled lazily in :func:`_scaffold_step_body`; cached at module load."""
-
-
-def _scaffold_step_body() -> str:
-    """Extract the composite step's ``run:`` shell body from action.yml.
+def _run_step_body() -> str:
+    """Extract the run step's ``run:`` shell body from action.yml.
 
     Pulled out of the YAML so the shell tests stay in lockstep with
     the actual Action behaviour: any change to the validation
@@ -354,32 +323,50 @@ def _scaffold_step_body() -> str:
     """
 
     metadata = yaml.safe_load(_ACTION_YML.read_text(encoding="utf-8"))
-    body = metadata["runs"]["steps"][0]["run"]
+    run_step = next(
+        (
+            s
+            for s in metadata["runs"]["steps"]
+            if isinstance(s, dict) and s.get("id") == "run"
+        ),
+        None,
+    )
+    assert run_step is not None, "composite must have a step with id `run`"
+    body = run_step.get("run")
     assert isinstance(body, str) and body.strip()
     return body
 
 
-def _run_scaffold_script(
+def _run_validation_only(
     *,
     fail_on: str,
     post_comment: str,
     mode: str,
     tmp_path: Path,
 ) -> subprocess.CompletedProcess[str]:
-    """Execute the scaffold's bash body with the given env vars.
+    """Run the validation prelude of the run step's bash body.
 
-    Mimics the GitHub Actions runner: writes the step body to a
-    temp file, sets the same `REVIEWGATE_*` env vars the composite
-    step exports, and points `GITHUB_OUTPUT` at a writable file so
-    `>> "${GITHUB_OUTPUT}"` lines work even though the scaffold no
-    longer writes any.
-
-    Returns the completed process so callers can assert on
-    ``returncode``, ``stdout``, and ``stderr``.
+    The full run body shells out to ``python -m
+    reviewgate_action.fetch_pr`` and ``run_core`` after the input
+    validation case-statements; running that here would require a
+    real GitHub token and network access. Instead, we slice the body
+    at the first ``python -m`` invocation, keeping only the
+    validation prelude, and execute that. The slice keeps the case
+    statements behaviour-compatible with what GitHub Actions runs
+    while staying hermetic.
     """
 
-    script = tmp_path / "scaffold.sh"
-    script.write_text(_scaffold_step_body(), encoding="utf-8")
+    body = _run_step_body()
+    cut_marker = "workdir="
+    assert cut_marker in body, (
+        "run step body must contain the post-validation `workdir=` line; "
+        "if this assert fires the prelude has been refactored and the "
+        "test slice needs to be updated"
+    )
+    prelude = body.split(cut_marker, 1)[0]
+
+    script = tmp_path / "validate.sh"
+    script.write_text(prelude, encoding="utf-8")
     output = tmp_path / "github_output"
     output.write_text("", encoding="utf-8")
 
@@ -390,6 +377,7 @@ def _run_scaffold_script(
             "REVIEWGATE_POST_COMMENT": post_comment,
             "REVIEWGATE_MODE": mode,
             "GITHUB_OUTPUT": str(output),
+            "GITHUB_WORKSPACE": str(tmp_path),
             "PATH": "/usr/bin:/bin:/usr/local/bin",
         },
         capture_output=True,
@@ -399,28 +387,23 @@ def _run_scaffold_script(
     )
 
 
-def test_scaffold_script_exits_one_for_valid_inputs(tmp_path: Path) -> None:
-    """Valid inputs follow the fail-closed path (exit 1, ``::error::``).
+def test_run_step_validation_accepts_documented_inputs(tmp_path: Path) -> None:
+    """All §14 documented inputs must pass the prelude validation.
 
-    The §14 review pipeline (PR fetch, core invocation, comment
-    upsert) is not implemented yet, so the scaffold must fail
-    closed with exit 1 to keep branch protection from silently
-    passing. Exit 1 (not 2) distinguishes "not implemented" from
-    "bad input".
+    The prelude (case-statements) is the public input contract;
+    documented values must not trigger the ``exit 2`` branch.
     """
 
-    proc = _run_scaffold_script(
+    proc = _run_validation_only(
         fail_on="FAIL",
         post_comment="true",
         mode="auto",
         tmp_path=tmp_path,
     )
-    assert proc.returncode == 1, (
-        f"valid inputs must trigger the not-implemented exit 1 path; "
-        f"got returncode={proc.returncode}\nstdout={proc.stdout!r}\n"
-        f"stderr={proc.stderr!r}"
+    assert proc.returncode == 0, (
+        f"valid inputs must pass validation; got returncode={proc.returncode}\n"
+        f"stdout={proc.stdout!r}\nstderr={proc.stderr!r}"
     )
-    assert "::error::reviewgate-action scaffold is not runnable yet" in proc.stdout
 
 
 @pytest.mark.parametrize(
@@ -432,7 +415,7 @@ def test_scaffold_script_exits_one_for_valid_inputs(tmp_path: Path) -> None:
         ("", "true", "auto", "fail-on must be one of"),
     ],
 )
-def test_scaffold_script_exits_two_for_invalid_inputs(
+def test_run_step_validation_rejects_invalid_inputs(
     tmp_path: Path,
     fail_on: str,
     post_comment: str,
@@ -443,11 +426,10 @@ def test_scaffold_script_exits_two_for_invalid_inputs(
 
     Exercises the three documented enum contracts end to end (not
     just by string-grepping the YAML) so the public input contract
-    cannot silently regress -- a bot reviewer flagged that pure
-    metadata tests can pass while the validation branches degrade.
+    cannot silently regress.
     """
 
-    proc = _run_scaffold_script(
+    proc = _run_validation_only(
         fail_on=fail_on,
         post_comment=post_comment,
         mode=mode,
@@ -463,23 +445,15 @@ def test_scaffold_script_exits_two_for_invalid_inputs(
     )
 
 
-def test_action_readme_documents_every_input_and_planned_outputs() -> None:
-    """The per-action README must list every input and the planned outputs.
-
-    Drift catcher: if a future PR adds an input to `action.yml` but
-    forgets the docs row, this test fails before the change ships.
-    The two §14 outputs (`reviewability`, `report-json`) are
-    documented as "planned" in the scaffold (they land with the
-    runtime in #25) but the names must still appear so consumers
-    reading the README know what the eventual contract is.
-    """
+def test_action_readme_documents_every_input_and_output() -> None:
+    """The per-action README must list every input and the §14 outputs."""
 
     readme = _ACTION_README.read_text(encoding="utf-8")
     for name in _ALL_INPUTS:
         assert f"`{name}`" in readme, (
             f"reviewgate-action/README.md must document input `{name}`"
         )
-    for name in ("reviewability", "report-json"):
+    for name in _DECLARED_OUTPUTS:
         assert f"`{name}`" in readme, (
-            f"reviewgate-action/README.md must document planned output `{name}`"
+            f"reviewgate-action/README.md must document output `{name}`"
         )

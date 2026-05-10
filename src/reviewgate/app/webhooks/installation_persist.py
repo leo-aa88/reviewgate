@@ -1,8 +1,13 @@
-"""Persist GitHub App ``installation`` webhooks (``docs/DESIGN.md`` §13.2, §16.1)."""
+"""Persist GitHub App ``installation`` webhooks (``docs/DESIGN.md`` §13.2, §16.1).
+
+Handles ``installation`` ``created`` / ``deleted`` plus ``installation_repositories``
+``added`` / ``removed`` (issues #35, #36).
+"""
 
 from __future__ import annotations
 
 import uuid
+from datetime import datetime, timezone
 from typing import Any
 
 from sqlalchemy import select, update
@@ -21,13 +26,14 @@ def persist_installation_webhook_payload(
     action: str,
     payload: dict[str, Any],
 ) -> None:
-    """Upsert ``installations`` / ``repositories`` for supported webhook actions.
+    """Persist ``installations`` / ``repositories`` for supported webhook actions.
 
     Args:
         settings: Application settings (requires ``REVIEWGATE_DATABASE_URL``).
         event_name: ``X-GitHub-Event`` value (``installation`` or
             ``installation_repositories``).
-        action: Payload ``action`` field.
+        action: Payload ``action`` field (for example ``created``, ``deleted``,
+            ``added``, ``removed``).
         payload: Parsed JSON object from the webhook body.
 
     Raises:
@@ -46,9 +52,10 @@ def persist_installation_webhook_payload(
     session_factory = create_session_factory(engine)
     with session_factory() as session:
         if event_name == "installation":
-            if action != "created":
-                return
-            _installation_created(session, payload)
+            if action == "created":
+                _installation_created(session, payload)
+            elif action == "deleted":
+                _installation_deleted(session, payload)
         elif event_name == "installation_repositories":
             if action == "added":
                 _installation_repositories_added(session, payload)
@@ -181,6 +188,30 @@ def _parse_repository_dict(repo: dict[str, Any]) -> tuple[int, str, str, str, bo
     private_val = repo.get("private")
     private = bool(private_val) if isinstance(private_val, bool) else False
     return raw_id, owner_login, name.strip(), fn, private
+
+
+def _installation_deleted(session: Session, payload: dict[str, Any]) -> None:
+    """Soft-delete the installation and deactivate all linked repositories."""
+
+    inst = _installation_block(payload)
+    gid = _parse_github_installation_id(inst)
+    installation_uuid = session.execute(
+        select(Installation.id).where(Installation.github_installation_id == gid),
+    ).scalar_one_or_none()
+    if installation_uuid is None:
+        return
+
+    now = datetime.now(timezone.utc)
+    session.execute(
+        update(Installation)
+        .where(Installation.id == installation_uuid)
+        .values(deleted_at=now),
+    )
+    session.execute(
+        update(Repository)
+        .where(Repository.installation_id == installation_uuid)
+        .values(active=False),
+    )
 
 
 def _installation_created(session: Session, payload: dict[str, Any]) -> None:

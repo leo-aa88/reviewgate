@@ -43,7 +43,16 @@ def _minimal_engine_input_payload() -> dict[str, object]:
         {
             "pr": {
                 "title": "Add docs",
-                "body": "Adds README section",
+                # Substantive body so the \u00a710.10 weak-body heuristic
+                # stays silent and CLI tests can assert
+                # ``report.warnings == []`` without coupling to that
+                # specific heuristic.
+                "body": (
+                    "This PR rewrites the README intro section so new "
+                    "contributors can find the install instructions, the "
+                    "supported Python versions, and the test command "
+                    "without scrolling. No code changes."
+                ),
                 "author": "octocat",
                 "base_branch": "main",
                 "head_branch": "feat/docs",

@@ -31,11 +31,27 @@ from reviewgate.core.size import (
 
 _AUTHOR: Final[str] = "octocat"
 
+# A body well above the \u00a710.10 80-meaningful-char threshold so the
+# weak-body heuristic stays silent. Tests that want to exercise weak-body
+# behaviour pass an explicit ``body=`` override.
+_SUBSTANTIVE_BODY: Final[str] = (
+    "This pull request implements a focused improvement to the API: "
+    "it adds caching for the user activity endpoint and updates the "
+    "matching unit tests so the reviewer can confirm the new behaviour "
+    "without spinning up a full environment."
+)
 
-def _pr(*, additions: int, deletions: int, changed_files: int) -> PRRecord:
+
+def _pr(
+    *,
+    additions: int,
+    deletions: int,
+    changed_files: int,
+    body: str = _SUBSTANTIVE_BODY,
+) -> PRRecord:
     return PRRecord(
         title="t",
-        body="b",
+        body=body,
         author=_AUTHOR,
         base_branch="main",
         head_branch="feat",
@@ -209,6 +225,45 @@ def test_analyze_silently_falls_back_to_defaults_on_invalid_config() -> None:
     pass_verdict: Reviewability = "PASS"
     assert report.reviewability == pass_verdict
     assert report.warnings == []
+
+
+def test_analyze_emits_weak_body_warning_when_pr_body_is_empty() -> None:
+    """\u00a710.10: an empty PR body fires a single ``weak_pr_body`` medium warning.
+
+    Verifies #11 is wired through ``analyze()`` end to end and does not
+    interfere with the size dimension when the diff is otherwise small.
+    """
+
+    from reviewgate.core.pr_body import REASON_EMPTY, WARN_CODE_WEAK_BODY
+
+    engine_input = EngineInput(
+        pr=_pr(additions=10, deletions=2, changed_files=1, body=""),
+        files=[_file("README.md", changes=12)],
+    )
+    report = analyze(engine_input)
+
+    [warning] = report.warnings
+    assert warning.code == WARN_CODE_WEAK_BODY
+    assert warning.severity == "medium"
+    assert warning.evidence["reason"] == REASON_EMPTY
+
+
+def test_analyze_combines_size_and_weak_body_warnings() -> None:
+    """A 5000-LOC PR with an empty body emits both heuristics' warnings."""
+
+    from reviewgate.core.pr_body import WARN_CODE_WEAK_BODY
+
+    engine_input = EngineInput(
+        pr=_pr(additions=5000, deletions=0, changed_files=1, body="   "),
+        files=[_file("src/feature.py", changes=5000)],
+    )
+    report = analyze(engine_input)
+
+    codes = sorted(w.code for w in report.warnings)
+    assert codes == sorted([WARN_CODE_WEAK_BODY, WARN_CODE_TOO_LARGE_HUMAN_LOC])
+    fail_verdict: Reviewability = "FAIL"
+    # 1 high (size) + 1 medium (body) -> FAIL per \u00a710.13.
+    assert report.reviewability == fail_verdict
 
 
 def test_analyze_file_categories_are_in_input_order() -> None:

@@ -165,6 +165,10 @@ def _openai_review(diff_text: str, *, repo: str, pr_number: int) -> str:
     system = (
         "You are a senior Python reviewer commenting on a GitHub pull request.\n"
         "\n"
+        """Assume the implementation is incomplete, overconfident or subtly wrong.
+         Verify acceptance criteria, tests, integrations points, secruity, error 
+         handling and whether this PR breaks existing behavior."""
+        "\n"
         "You will be given a unified diff and nothing else. Ground every claim "
         "in text that appears in that diff. Do not invent files, symbols, "
         "imports, call sites, or behavior you cannot see. If a concern cannot "

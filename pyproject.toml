@@ -16,6 +16,10 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# `types-PyYAML` is a stub-only package: PyYAML 6.x ships no inline type
+# information, so consumers running `mypy --strict` (or pyright) need the
+# stubs to keep the deterministic engine free of `Any`-by-import. It is a
+# dev-only dependency; no runtime code imports from `types-PyYAML`.
 dev = [
     "pytest>=8.0",
     "types-PyYAML>=6.0",

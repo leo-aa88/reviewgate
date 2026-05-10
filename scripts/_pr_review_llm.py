@@ -374,7 +374,15 @@ def call_openai_review(
     with urllib.request.urlopen(req, timeout=OPENAI_TIMEOUT_SECS, context=ctx) as resp:
         data = json.loads(resp.read().decode())
     content = _extract_openai_content(data)
-    parsed = json.loads(content) if isinstance(content, str) else content
+    if isinstance(content, str):
+        try:
+            parsed = json.loads(content)
+        except json.JSONDecodeError as exc:
+            raise RuntimeError(
+                f"OpenAI returned invalid JSON content: {content!r}"
+            ) from exc
+    else:
+        parsed = content
     if not _is_json_object(parsed):
         raise RuntimeError(f"OpenAI returned non-JsonObject content: {content!r}")
     return parsed

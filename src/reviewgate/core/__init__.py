@@ -1,4 +1,28 @@
-"""Deterministic reviewability engine (`reviewgate-core` boundary per docs/DESIGN.md §4.1)."""
+"""Deterministic reviewability engine (`reviewgate-core` boundary per docs/DESIGN.md \u00a74.1).
+
+Public API surface (re-exported from this package root):
+
+* Engine entry point: :func:`analyze` (\u00a710.2).
+* Aggregator: :func:`baseline_reviewability` (\u00a710.13).
+* Heuristics: :func:`categorize_changed_files`, :func:`compute_size_stats`,
+  :func:`size_warnings`, :func:`weak_body_warning`,
+  :func:`linked_issue_warning`, :func:`risky_paths_warning`,
+  :func:`mixed_concern_warning`.
+* Report assembly: :func:`suggested_labels` (\u00a713.9 + \u00a712) -- maps the
+  engine verdict and warning codes to the user-configurable label list.
+  Added on the issue-15 path; consumers that want only the verdict can
+  ignore it, but downstream label appliers (the GitHub App from #52,
+  the hosted worker from #50) should import it from here rather than
+  reaching into :mod:`reviewgate.core.report` directly.
+* Config loader: :func:`load_config` and the :class:`ReviewGateConfig`
+  / :class:`ConfigLoadResult` Pydantic models.
+* Schemas: :class:`EngineInput`, :class:`EngineWarning`,
+  :class:`ReviewabilityReport`, :class:`Reviewability`,
+  :class:`WarningSeverity`, :class:`FileCategory`, etc.
+
+Anything not in :data:`__all__` below is internal and may move
+without a deprecation cycle.
+"""
 
 from . import (
     aggregate,

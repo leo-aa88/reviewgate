@@ -845,13 +845,21 @@ def test_call_openai_review_raises_on_missing_content_field(
 def test_call_openai_review_raises_on_non_json_content(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """Non-JSON content must surface as ``RuntimeError`` to honor the docstring.
+
+    Previously a malformed response leaked a raw ``json.JSONDecodeError``,
+    which contradicts the documented ``Raises: RuntimeError`` contract on
+    :func:`call_openai_review`. The wrapper re-raises with the offending
+    content in the message.
+    """
+
     from _pr_review_llm import call_openai_review
 
     _stub_urlopen(
         monkeypatch,
         {"choices": [{"message": {"content": "not-json-just-prose"}}]},
     )
-    with pytest.raises(json.JSONDecodeError):
+    with pytest.raises(RuntimeError, match="invalid JSON content"):
         call_openai_review("diff", repo="o/r", pr_number=1, diff_index={})
 
 

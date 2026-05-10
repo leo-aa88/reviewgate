@@ -11,6 +11,7 @@ from . import (
     paths,
     pr_body,
     report,
+    risky_paths,
     schemas,
     size,
 )
@@ -27,6 +28,7 @@ from .engine import analyze
 from .linked_issue import find_issue_references, linked_issue_warning
 from .paths import PathMatcher, match_any
 from .pr_body import weak_body_warning
+from .risky_paths import risky_paths_warning
 from .size import SizeStats, compute_size_stats, size_warnings
 from .schemas import (
     ChangedFile,
@@ -79,6 +81,8 @@ __all__ = [
     "paths",
     "pr_body",
     "report",
+    "risky_paths",
+    "risky_paths_warning",
     "schemas",
     "size",
     "size_warnings",

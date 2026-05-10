@@ -22,6 +22,7 @@ from .categorizer import Categorizer
 from .config import DEFAULT_RISKY_PATHS, ReviewGateConfig
 from .linked_issue import linked_issue_warning
 from .pr_body import weak_body_warning
+from .risky_paths import risky_paths_warning
 from .schemas import EngineInput, EngineWarning, ReviewabilityReport
 from .size import compute_size_stats, size_warnings
 
@@ -82,6 +83,16 @@ def analyze(engine_input: EngineInput) -> ReviewabilityReport:
     )
     if issue_warning is not None:
         warnings.append(issue_warning)
+
+    risky_warning = risky_paths_warning(
+        file_categories,
+        pr.body,
+        fail_on_risky_paths_without_context=(
+            config.policy.fail_on_risky_paths_without_context
+        ),
+    )
+    if risky_warning is not None:
+        warnings.append(risky_warning)
 
     return ReviewabilityReport(
         reviewability=baseline_reviewability(warnings),

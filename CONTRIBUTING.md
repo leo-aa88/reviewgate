@@ -34,10 +34,21 @@ candidate for a Go port later.
 `tests/test_core_purity.py` parses every `.py` file under
 `src/reviewgate/core/` with `ast` (no execution) and fails if any
 import resolves to a forbidden module. The forbidden list is grouped by
-the §4.1 rule it protects — HTTP clients, DB drivers, LLM SDKs, cloud
-SDKs, GitHub clients, and stdlib network/process modules. The same test
-also asserts that `pyproject.toml` does not pull a forbidden package
-into the runtime `dependencies`.
+the §4.1 rule it protects. Concrete examples (not exhaustive — see
+`tests/test_core_purity.py` for the full table):
+
+| Category (§4.1 rule) | Examples of forbidden imports |
+| --- | --- |
+| Third-party HTTP clients (no network) | `httpx`, `requests`, `aiohttp`, `urllib3` |
+| Database drivers / clients (no database) | `sqlalchemy`, `psycopg`, `psycopg2`, `asyncpg`, `pymongo`, `redis`, `aioredis` |
+| LLM provider SDKs (no LLM) | `openai`, `anthropic`, `cohere`, `mistralai`, `litellm`, `google.generativeai`, `google.genai` |
+| Cloud / GitHub SDKs (no GitHub API, no side effects) | `boto3`, `botocore`, `google.cloud.*`, `github`, `githubkit`, `gidgethub` |
+| Stdlib network surfaces (no network) | `socket`, `ssl`, `http.client`, `http.server`, `urllib.request`, `urllib.error`, `ftplib`, `smtplib` |
+| Stdlib process spawning (no side effects) | `subprocess`, `multiprocessing`, `asyncio.subprocess` |
+
+`urllib.parse` is **allowed** — it is pure string manipulation, not
+network. The same test also asserts that `pyproject.toml` does not pull
+a forbidden package into the runtime `dependencies`.
 
 ### If the purity test fails
 

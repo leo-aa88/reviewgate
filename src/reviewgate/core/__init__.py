@@ -8,6 +8,7 @@ from . import (
     engine,
     heuristics,
     linked_issue,
+    mixed_concern,
     paths,
     pr_body,
     report,
@@ -26,6 +27,7 @@ from .config import (
 )
 from .engine import analyze
 from .linked_issue import find_issue_references, linked_issue_warning
+from .mixed_concern import mixed_concern_warning
 from .paths import PathMatcher, match_any
 from .pr_body import weak_body_warning
 from .risky_paths import risky_paths_warning
@@ -78,6 +80,8 @@ __all__ = [
     "linked_issue_warning",
     "load_config",
     "match_any",
+    "mixed_concern",
+    "mixed_concern_warning",
     "paths",
     "pr_body",
     "report",

@@ -21,6 +21,7 @@ from .aggregate import baseline_reviewability
 from .categorizer import Categorizer
 from .config import DEFAULT_RISKY_PATHS, ReviewGateConfig
 from .linked_issue import linked_issue_warning
+from .mixed_concern import mixed_concern_warning
 from .pr_body import weak_body_warning
 from .risky_paths import risky_paths_warning
 from .schemas import EngineInput, EngineWarning, ReviewabilityReport
@@ -93,6 +94,10 @@ def analyze(engine_input: EngineInput) -> ReviewabilityReport:
     )
     if risky_warning is not None:
         warnings.append(risky_warning)
+
+    mixed_warning = mixed_concern_warning(file_categories)
+    if mixed_warning is not None:
+        warnings.append(mixed_warning)
 
     return ReviewabilityReport(
         reviewability=baseline_reviewability(warnings),

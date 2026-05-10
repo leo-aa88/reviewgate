@@ -250,6 +250,15 @@ def _split_inline_comments(
     demoted: list[JsonObject] = []
     for entry in raw_inline:
         if not isinstance(entry, dict):
+            demoted.append(
+                {
+                    "severity": "must",
+                    "body": (
+                        f"_(bot dropped a malformed inline comment: "
+                        f"expected object, got `{type(entry).__name__}`)_"
+                    ),
+                }
+            )
             continue
         path = entry.get("path")
         line = entry.get("line")
@@ -263,6 +272,16 @@ def _split_inline_comments(
             and isinstance(severity, str)
             and isinstance(quoted, str)
         ):
+            preview = body if isinstance(body, str) else "(no body field)"
+            demoted.append(
+                {
+                    "severity": severity if isinstance(severity, str) else "must",
+                    "body": (
+                        f"_(bot dropped a malformed inline comment; "
+                        f"required fields missing or wrong type)_ {preview}"
+                    ),
+                }
+            )
             continue
         norm_path = _normalize_path(path)
         if norm_path in diff_index and line in diff_index[norm_path]:

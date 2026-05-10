@@ -32,6 +32,7 @@ if str(_SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_DIR))
 
 import post_pr_llm_review as ppr  # noqa: E402  (sys.path setup above)
+from _pr_review_llm import parse_diff_right_side  # noqa: E402
 
 if TYPE_CHECKING:
     from _pr_review_llm import DiffIndex, JsonValue
@@ -176,12 +177,23 @@ def test_split_inline_normalizes_a_b_path_prefix_before_anchor_check() -> None:
         {"path": "p", "line": 10, "severity": "must", "body": "x", "quoted_line": 42},
     ],
 )
-def test_split_inline_silently_drops_malformed_entries(bad_entry: JsonValue) -> None:
+def test_split_inline_demotes_malformed_entries_instead_of_dropping(
+    bad_entry: JsonValue,
+) -> None:
+    """Malformed entries must surface in ``demoted`` rather than vanish.
+
+    The bot reviewer flagged silent ``continue`` here as a data-loss path:
+    a malformed model output would erase a finding without any trace.
+    Each malformed entry now produces exactly one demoted general comment
+    so the human reviewer can see something went wrong.
+    """
+
     diff = _diff_index_with("p", {10})
     valid, demoted = ppr._split_inline_comments([bad_entry], diff)
 
     assert valid == []
-    assert demoted == []
+    assert len(demoted) == 1
+    assert "malformed inline comment" in str(demoted[0]["body"])
 
 
 def test_split_inline_partitions_mixed_batch_correctly() -> None:
@@ -280,6 +292,112 @@ def test_post_pr_review_rejects_unknown_event_before_http(
             comments=[],
         )
     assert called == []
+
+
+# ---------------------------------------------------------------------------
+# parse_diff_right_side -- branch coverage for hunk-walker edge cases
+# ---------------------------------------------------------------------------
+
+
+def test_parse_diff_indexes_added_and_context_lines() -> None:
+    diff = (
+        "diff --git a/foo.py b/foo.py\n"
+        "--- a/foo.py\n"
+        "+++ b/foo.py\n"
+        "@@ -1,2 +1,3 @@\n"
+        " context_a\n"
+        "+added_b\n"
+        " context_c\n"
+    )
+    index = parse_diff_right_side(diff)
+    assert index == {"foo.py": {1, 2, 3}}
+
+
+def test_parse_diff_skips_pure_deletion_to_dev_null() -> None:
+    diff = (
+        "diff --git a/dead.py b/dead.py\n"
+        "deleted file mode 100644\n"
+        "--- a/dead.py\n"
+        "+++ /dev/null\n"
+        "@@ -1,3 +0,0 @@\n"
+        "-dead_a\n"
+        "-dead_b\n"
+        "-dead_c\n"
+    )
+    assert parse_diff_right_side(diff) == {}
+
+
+def test_parse_diff_treats_blank_body_line_as_context() -> None:
+    """A literal empty line inside a hunk is a context line on both sides.
+
+    Without a leading marker character the walker must still advance the
+    RIGHT counter and record the line as anchorable, otherwise inline
+    comments on blank-line context targets get rejected.
+    """
+
+    diff = (
+        "diff --git a/foo.py b/foo.py\n"
+        "--- a/foo.py\n"
+        "+++ b/foo.py\n"
+        "@@ -1,3 +1,3 @@\n"
+        " line_one\n"
+        "\n"
+        " line_three\n"
+    )
+    assert parse_diff_right_side(diff) == {"foo.py": {1, 2, 3}}
+
+
+def test_parse_diff_skips_no_newline_at_end_of_file_marker() -> None:
+    """``\\ No newline at end of file`` is metadata; do not advance counter."""
+
+    diff = (
+        "diff --git a/foo.py b/foo.py\n"
+        "--- a/foo.py\n"
+        "+++ b/foo.py\n"
+        "@@ -1,1 +1,1 @@\n"
+        "-old\n"
+        "+new\n"
+        "\\ No newline at end of file\n"
+    )
+    assert parse_diff_right_side(diff) == {"foo.py": {1}}
+
+
+def test_parse_diff_terminates_hunk_on_unknown_marker() -> None:
+    """An unrecognised first character ends the current hunk cleanly.
+
+    Anything that is not ``+ ``, ``- ``, ``  ``, or ``\\ `` is treated as
+    the start of a new file-level section (e.g. ``diff --git`` of the
+    next file). The walker must drop ``in_hunk`` so post-hunk noise does
+    not get indexed as anchorable lines.
+    """
+
+    diff = (
+        "diff --git a/foo.py b/foo.py\n"
+        "--- a/foo.py\n"
+        "+++ b/foo.py\n"
+        "@@ -1,1 +1,2 @@\n"
+        " line_one\n"
+        "+line_two\n"
+        "garbage_after_hunk_should_terminate\n"
+        "+also_after_terminator_should_be_ignored\n"
+    )
+    assert parse_diff_right_side(diff) == {"foo.py": {1, 2}}
+
+
+def test_parse_diff_handles_path_without_b_prefix() -> None:
+    diff = (
+        "diff --git foo.py foo.py\n"
+        "--- foo.py\n"
+        "+++ foo.py\n"
+        "@@ -1,1 +1,1 @@\n"
+        "+only\n"
+    )
+    assert parse_diff_right_side(diff) == {"foo.py": {1}}
+
+
+def test_parse_diff_skips_hunk_when_no_current_path() -> None:
+    diff = "@@ -1,1 +1,1 @@\n+orphan\n"
+    assert parse_diff_right_side(diff) == {}
 
 
 def test_post_pr_review_accepts_allowlisted_events(monkeypatch: pytest.MonkeyPatch) -> None:

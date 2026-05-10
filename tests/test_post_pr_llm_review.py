@@ -906,6 +906,393 @@ def test_call_openai_review_returns_validated_jsonobject(
     assert out["inline_comments"] == []
 
 
+# ---------------------------------------------------------------------------
+# _filter_general_comments -- grounding guard against ungrounded findings
+# ---------------------------------------------------------------------------
+
+
+def _general(
+    *,
+    severity: str = "must",
+    body: str = "Add a docstring.",
+    evidence: str = "",
+) -> ppr.JsonObject:
+    """Build a minimal `general_comments` entry under the new schema.
+
+    Mirrors the post-schema shape the model is now contractually required
+    to emit (severity / body / evidence). Helper rather than inline so a
+    future schema change touches one place.
+    """
+
+    return {"severity": severity, "body": body, "evidence": evidence}
+
+
+def _review_with_general(items: list[ppr.JsonObject]) -> ppr.JsonObject:
+    """Wrap `general_comments` in the rest of the model-output envelope.
+
+    `_filter_general_comments` only mutates `general_comments`, but it
+    returns a full review object; the helper keeps each test's setup
+    focused on the field under examination.
+    """
+
+    return {
+        "verdict": "request_changes",
+        "summary": "found things",
+        "inline_comments": [],
+        "general_comments": items,
+    }
+
+
+def test_filter_general_keeps_evidence_that_is_substring_of_diff() -> None:
+    """A finding whose `evidence` quotes a real diff line stays.
+
+    This is the green path the filter exists to preserve: if the model
+    quotes verbatim from the diff, the runtime should not interfere.
+    """
+
+    diff = "diff --git a/foo.py b/foo.py\n+++ b/foo.py\n+    return 42\n"
+    review = _review_with_general(
+        [_general(evidence="    return 42")]
+    )
+    out, dropped = ppr._filter_general_comments(review, diff)
+    assert dropped == []
+    assert isinstance(out["general_comments"], list)
+    assert len(out["general_comments"]) == 1
+
+
+def test_filter_general_drops_must_with_empty_evidence() -> None:
+    """``must`` severity without evidence is dropped (key anti-hallucination).
+
+    PR #81's bot review hallucinated seven `must`-severity general
+    comments with no diff anchor at all. This test locks in the policy
+    that any `must` finding the model cannot quote-back is dropped
+    from the review body and reported as a `_drop_reason` to the
+    orchestrator so the operator sees a `::warning::` in the CI log.
+    """
+
+    review = _review_with_general(
+        [_general(severity="must", body="Bare hallucination.", evidence="")]
+    )
+    out, dropped = ppr._filter_general_comments(review, "irrelevant")
+    assert out["general_comments"] == []
+    assert len(dropped) == 1
+    assert dropped[0]["_drop_reason"] == "must without evidence"
+    assert dropped[0]["body"] == "Bare hallucination."
+
+
+def test_filter_general_keeps_low_severity_with_empty_evidence() -> None:
+    """``should`` / ``nit`` may be cross-cutting (no specific anchor).
+
+    Empty `evidence` is the model's way of saying "this is a project-
+    level concern, e.g. no test added for the new branch". For non-
+    blocking severities, that is acceptable; only `must` is held to
+    the higher diff-quote bar.
+    """
+
+    review = _review_with_general(
+        [
+            _general(severity="should", body="Add tests for new branch.", evidence=""),
+            _general(severity="nit", body="Group constants.", evidence=""),
+        ]
+    )
+    out, dropped = ppr._filter_general_comments(review, "irrelevant")
+    assert dropped == []
+    assert isinstance(out["general_comments"], list)
+    assert len(out["general_comments"]) == 2
+
+
+def test_filter_general_drops_evidence_not_in_diff() -> None:
+    """Hallucinated quotes (no substring match in diff) are dropped.
+
+    The model cannot bypass the runtime check by inventing plausible-
+    sounding evidence; the substring search has to find the exact
+    text in the diff handed to the LLM.
+    """
+
+    diff = "diff --git a/foo.py b/foo.py\n+++ b/foo.py\n+    return 42\n"
+    review = _review_with_general(
+        [_general(evidence="def hallucinated_function():")]
+    )
+    out, dropped = ppr._filter_general_comments(review, diff)
+    assert out["general_comments"] == []
+    assert len(dropped) == 1
+    assert dropped[0]["_drop_reason"] == "evidence not in diff"
+
+
+def test_filter_general_drops_evidence_too_short() -> None:
+    """Sub-MIN_EVIDENCE_LEN evidence is dropped even if it is in the diff.
+
+    Tokens like ``def`` or ``self`` match too many lines of any non-
+    trivial diff to constitute grounding; the floor forces the model to
+    quote a meaningful fragment.
+    """
+
+    diff = "diff --git a/foo.py b/foo.py\n+++ b/foo.py\n+    return 42\n"
+    review = _review_with_general([_general(evidence="def")])
+    out, dropped = ppr._filter_general_comments(review, diff)
+    assert out["general_comments"] == []
+    assert len(dropped) == 1
+    assert dropped[0]["_drop_reason"] == "evidence too short"
+
+
+def test_filter_general_drops_malformed_entries() -> None:
+    """Non-dict entries and wrong-typed fields are demoted, not crashed."""
+
+    review: ppr.JsonObject = {
+        "verdict": "comment",
+        "summary": "",
+        "inline_comments": [],
+        "general_comments": [
+            "not-a-dict",
+            {"severity": "must", "body": None, "evidence": ""},
+            {"severity": 1, "body": "x", "evidence": "x"},
+        ],
+    }
+    out, dropped = ppr._filter_general_comments(review, "diff")
+    assert out["general_comments"] == []
+    assert len(dropped) == 3
+    assert {d["_drop_reason"] for d in dropped} == {"malformed"}
+
+
+def test_filter_general_returns_input_unchanged_when_no_general_field() -> None:
+    """Non-list / missing `general_comments` is a no-op (defensive)."""
+
+    review: ppr.JsonObject = {
+        "verdict": "comment",
+        "summary": "",
+        "inline_comments": [],
+    }
+    out, dropped = ppr._filter_general_comments(review, "diff")
+    assert dropped == []
+    assert out is review or out.get("general_comments") is None
+
+
+def test_filter_general_does_not_mutate_caller_review() -> None:
+    """Filter must shallow-copy: the caller's review object is read-only.
+
+    Locks the contract documented in the docstring; without the copy,
+    a follow-up call site using the original review would silently see
+    the filtered view, which would surprise readers tracing the code.
+    """
+
+    review = _review_with_general(
+        [_general(severity="must", body="x", evidence="")]
+    )
+    original_general = review["general_comments"]
+    out, dropped = ppr._filter_general_comments(review, "diff")
+    assert out is not review
+    assert review["general_comments"] is original_general  # untouched
+    assert len(dropped) == 1
+
+
+# ---------------------------------------------------------------------------
+# _maybe_truncate / _truncation_notice -- diff-window transparency
+# ---------------------------------------------------------------------------
+
+
+def test_maybe_truncate_returns_false_for_small_diff() -> None:
+    diff = "small diff body"
+    out, truncated = ppr._maybe_truncate(diff)
+    assert out == diff
+    assert truncated is False
+
+
+def test_maybe_truncate_returns_true_and_crops_for_large_diff() -> None:
+    """Beyond ``MAX_DIFF_CHARS``, the diff is head/tail-cropped.
+
+    The bool channel is what the orchestrator uses to inject the
+    truncation notice into the review body; this test pins the flag
+    (the textual layout of the truncated body is incidental).
+    """
+
+    big = "x" * (ppr.MAX_DIFF_CHARS + 1000)
+    out, truncated = ppr._maybe_truncate(big)
+    assert truncated is True
+    assert "Diff truncated" in out
+    assert "[... omitted middle ...]" in out
+
+
+def test_truncation_notice_is_none_when_not_truncated() -> None:
+    assert ppr._truncation_notice(False, 1000) is None
+
+
+def test_truncation_notice_includes_lengths_when_truncated() -> None:
+    out = ppr._truncation_notice(True, 9_999_999)
+    assert isinstance(out, str)
+    assert "9999999" in out
+    assert str(ppr.MAX_DIFF_CHARS) in out
+    assert out.startswith("_") and out.endswith("_")  # markdown italic
+
+
+# ---------------------------------------------------------------------------
+# _build_review_body -- truncation notice surfacing
+# ---------------------------------------------------------------------------
+
+
+def test_build_review_body_renders_truncation_notice_first_when_supplied() -> None:
+    """The truncation banner must appear above the verdict so a reviewer
+    knows up-front whether the bot saw the full patch."""
+
+    body = ppr._build_review_body(
+        {"verdict": "comment", "summary": "ok"},
+        demoted=[],
+        head_sha_marker="<!-- m -->",
+        truncation_notice="_diff truncated_",
+    )
+    truncation_idx = body.find("_diff truncated_")
+    verdict_idx = body.find("**Verdict:**")
+    assert truncation_idx != -1
+    assert verdict_idx > truncation_idx
+
+
+def test_build_review_body_omits_truncation_section_when_none() -> None:
+    body = ppr._build_review_body(
+        {"verdict": "comment", "summary": "ok"},
+        demoted=[],
+        head_sha_marker="<!-- m -->",
+    )
+    assert "Diff truncated" not in body
+    assert body.startswith("**Verdict:**")
+
+
+# ---------------------------------------------------------------------------
+# _process_pr -- end-to-end grounding (PR #81 regression)
+# ---------------------------------------------------------------------------
+
+
+def test_process_pr_drops_ungrounded_must_general_comment(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Regression for the PR #81 hallucination: `must` general comment
+    with no diff evidence must NOT reach the GitHub Reviews API body,
+    must be reported via ``::warning::`` to the CI log, and the verdict
+    must downgrade to ``COMMENT`` because no grounded `must` survived.
+    """
+
+    head_sha = "ba110000" + "0" * 32
+    diff_text = (
+        "diff --git a/foo.py b/foo.py\n"
+        "--- a/foo.py\n"
+        "+++ b/foo.py\n"
+        "@@ -1,1 +1,1 @@\n"
+        " line_one\n"
+    )
+
+    posted: dict[str, ppr.JsonObject] = {}
+
+    def fake_http_json(
+        method: str,
+        url: str,
+        token: str,
+        *,
+        accept: str = "application/vnd.github+json",
+        body: ppr.JsonObject | None = None,
+    ) -> ppr.JsonValue:
+        if method == "GET":
+            return {"head": {"sha": head_sha, "repo": {"full_name": "o/r"}}}
+        assert body is not None
+        posted["payload"] = body
+        return {}
+
+    monkeypatch.setattr(ppr, "_http_json", fake_http_json)
+    monkeypatch.setattr(ppr, "_http_text", lambda *a, **kw: diff_text)
+    monkeypatch.setattr(ppr, "_list_issue_comments", lambda *a, **kw: [])
+    monkeypatch.setattr(ppr, "_list_pr_reviews", lambda *a, **kw: [])
+    monkeypatch.setattr(
+        ppr,
+        "call_openai_review",
+        lambda *a, **kw: {
+            "verdict": "request_changes",
+            "summary": "Bot fabricated a finding.",
+            "inline_comments": [],
+            "general_comments": [
+                {
+                    "severity": "must",
+                    "body": "Function lacks docstring.",
+                    "evidence": "",  # empty -> dropped
+                },
+            ],
+        },
+    )
+    monkeypatch.setenv("OPENAI_API_KEY", "stub")
+
+    result = ppr._process_pr("o", "r", "o/r", 81, "tok")
+
+    assert "dropped_general=1" in result
+    payload = posted["payload"]
+    assert payload["event"] == "COMMENT"
+    body_str = str(payload["body"])
+    assert "Function lacks docstring." not in body_str  # dropped
+    assert "Must-fix" not in body_str  # nothing remains at must
+    err = capsys.readouterr().out
+    assert "::warning::" in err
+    assert "must without evidence" in err
+
+
+def test_process_pr_keeps_grounded_general_comment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A general comment whose `evidence` is a verbatim diff substring
+    must survive the filter and appear in the rendered review body."""
+
+    head_sha = "9000beef" + "0" * 32
+    diff_text = (
+        "diff --git a/foo.py b/foo.py\n"
+        "--- a/foo.py\n"
+        "+++ b/foo.py\n"
+        "@@ -1,1 +1,2 @@\n"
+        " line_one\n"
+        "+    return 42  # magic\n"
+    )
+
+    posted: dict[str, ppr.JsonObject] = {}
+
+    def fake_http_json(
+        method: str,
+        url: str,
+        token: str,
+        *,
+        accept: str = "application/vnd.github+json",
+        body: ppr.JsonObject | None = None,
+    ) -> ppr.JsonValue:
+        if method == "GET":
+            return {"head": {"sha": head_sha, "repo": {"full_name": "o/r"}}}
+        assert body is not None
+        posted["payload"] = body
+        return {}
+
+    monkeypatch.setattr(ppr, "_http_json", fake_http_json)
+    monkeypatch.setattr(ppr, "_http_text", lambda *a, **kw: diff_text)
+    monkeypatch.setattr(ppr, "_list_issue_comments", lambda *a, **kw: [])
+    monkeypatch.setattr(ppr, "_list_pr_reviews", lambda *a, **kw: [])
+    monkeypatch.setattr(
+        ppr,
+        "call_openai_review",
+        lambda *a, **kw: {
+            "verdict": "request_changes",
+            "summary": "Found a real one.",
+            "inline_comments": [],
+            "general_comments": [
+                {
+                    "severity": "must",
+                    "body": "Replace magic literal `42` with a named constant.",
+                    "evidence": "return 42  # magic",  # verbatim from diff
+                },
+            ],
+        },
+    )
+    monkeypatch.setenv("OPENAI_API_KEY", "stub")
+
+    result = ppr._process_pr("o", "r", "o/r", 81, "tok")
+
+    assert "dropped_general=0" in result
+    payload = posted["payload"]
+    assert payload["event"] == "REQUEST_CHANGES"
+    body_str = str(payload["body"])
+    assert "Replace magic literal" in body_str
+    assert "Must-fix" in body_str
+
+
 def test_post_pr_review_accepts_allowlisted_events(monkeypatch: pytest.MonkeyPatch) -> None:
     called: list[ppr.JsonObject] = []
 

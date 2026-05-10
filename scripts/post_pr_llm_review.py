@@ -58,9 +58,11 @@ from _pr_review_llm import (  # noqa: E402
     parse_diff_right_side,
 )
 from _pr_review_payload import (  # noqa: E402
+    MIN_EVIDENCE_LEN,
     QUOTED_LINE_DISPLAY_LIMIT,
     _build_review_body,
     _decide_event,
+    _filter_general_comments,
     _format_general_section,
     _format_inline_body,
     _has_must_severity,
@@ -80,6 +82,7 @@ __all__ = [
     "MARKER_PREFIX",
     "MARKER_SUFFIX",
     "MAX_DIFF_CHARS",
+    "MIN_EVIDENCE_LEN",
     "QUOTED_LINE_DISPLAY_LIMIT",
     "call_openai_review",
     "main",
@@ -297,16 +300,51 @@ def _post_pr_review(
 # Top-level orchestration -----------------------------------------------------
 
 
-def _maybe_truncate(diff: str) -> str:
-    """Truncate oversized diffs around the head/tail to fit the model window."""
+def _maybe_truncate(diff: str) -> tuple[str, bool]:
+    """Truncate oversized diffs around the head/tail to fit the model window.
+
+    Returns:
+        ``(diff_for_model, was_truncated)``. The boolean lets the
+        orchestrator surface a notice in the review body so a human
+        reviewer can tell when findings were generated against an
+        incomplete view of the patch -- a known source of bot
+        false-negatives (fix not visible because it lives in the
+        omitted middle) and false-positives (claim grounded in the
+        head/tail that contradicts something in the omitted middle).
+    """
 
     if len(diff) <= MAX_DIFF_CHARS:
-        return diff
+        return diff, False
     head = diff[: MAX_DIFF_CHARS // 2]
     tail = diff[-MAX_DIFF_CHARS // 2 :]
-    return (
+    truncated = (
         f"_Diff truncated to {MAX_DIFF_CHARS} characters for the model._\n\n"
         f"{head}\n\n[... omitted middle ...]\n\n{tail}"
+    )
+    return truncated, True
+
+
+def _truncation_notice(was_truncated: bool, original_len: int) -> str | None:
+    """Render the body-level truncation banner, or ``None`` to skip it.
+
+    Args:
+        was_truncated: Output flag from :func:`_maybe_truncate`.
+        original_len: Length of the diff BEFORE truncation, in chars.
+            Included so reviewers can gauge how much was dropped
+            relative to the :data:`MAX_DIFF_CHARS` budget.
+
+    Returns:
+        A markdown italic line for prepending to the review body, or
+        ``None`` when no truncation occurred (caller renders the body
+        unchanged).
+    """
+
+    if not was_truncated:
+        return None
+    return (
+        f"_Note: this diff was {original_len} chars; the LLM saw a "
+        f"{MAX_DIFF_CHARS}-char head/tail crop. Findings outside that "
+        f"window are not present in the review below._"
     )
 
 
@@ -355,7 +393,7 @@ def _process_pr(
 
     diff_raw = _get_pr_diff(owner, repo, pr_number, token)
     diff_index = parse_diff_right_side(diff_raw)
-    diff_for_model = _maybe_truncate(diff_raw)
+    diff_for_model, was_truncated = _maybe_truncate(diff_raw)
 
     review = call_openai_review(
         diff_for_model,
@@ -363,12 +401,22 @@ def _process_pr(
         pr_number=pr_number,
         diff_index=diff_index,
     )
+    review, dropped_general = _filter_general_comments(review, diff_for_model)
+    for d in dropped_general:
+        reason = d.get("_drop_reason", "unknown")
+        snippet = str(d.get("body", ""))[:160].replace("\n", " ")
+        print(f"::warning::Bot self-check dropped general comment ({reason}): {snippet}")
     raw_inline = review.get("inline_comments")
     inline_list: list[JsonValue] = (
         list(raw_inline) if isinstance(raw_inline, list) else []
     )
     valid_inline, demoted = _split_inline_comments(inline_list, diff_index)
-    body = _build_review_body(review, demoted, _marker(head_sha))
+    body = _build_review_body(
+        review,
+        demoted,
+        _marker(head_sha),
+        truncation_notice=_truncation_notice(was_truncated, len(diff_raw)),
+    )
     event = _decide_event(review, demoted)
     _post_pr_review(
         owner,
@@ -382,7 +430,8 @@ def _process_pr(
     )
     return (
         f"posted {event.lower()} review for {head_sha[:7]} "
-        f"(inline={len(valid_inline)}, demoted={len(demoted)})"
+        f"(inline={len(valid_inline)}, demoted={len(demoted)}, "
+        f"dropped_general={len(dropped_general)})"
     )
 
 

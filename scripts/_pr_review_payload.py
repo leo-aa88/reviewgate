@@ -22,6 +22,13 @@ from _pr_review_llm import DiffIndex, JsonObject, JsonValue
 
 QUOTED_LINE_DISPLAY_LIMIT: Final[int] = 200
 
+# Minimum length of a non-empty `evidence` substring that
+# `_filter_general_comments` will accept. Short fragments (e.g. ``def``,
+# ``self``) match too many lines in any non-trivial diff and give the
+# model a free pass to invent findings; an 8-char floor forces the
+# evidence to carry actual signal.
+MIN_EVIDENCE_LEN: Final[int] = 8
+
 _SEVERITY_LABEL: Final[dict[str, str]] = {
     "must": "Must-fix",
     "should": "Should-fix",
@@ -189,6 +196,128 @@ def _format_general_section(items: list[JsonObject], severity: str) -> str | Non
     return f"**{_SEVERITY_HEADING[severity]}**\n{bullets}"
 
 
+def _filter_general_comments(
+    review: JsonObject, diff_text: str
+) -> tuple[JsonObject, list[JsonObject]]:
+    """Drop ungrounded `general_comments` from a model review.
+
+    Even with a strict JSON schema and an explicit anchor map, the model
+    will sometimes emit `general_comments` that are not supported by
+    anything in the diff -- for example, restating a checklist item from
+    the system prompt without observing it on a changed line. Those
+    findings are the most expensive class of false positive: they post a
+    confident "must-fix" against code the patch did not change, and a
+    human reviewer has to refute them.
+
+    The runtime defends against that by re-checking each comment's
+    `evidence` field against the actual diff text and discarding entries
+    that fail. The drop policy is:
+
+    * Malformed entry (severity / body / evidence not strings) -> drop.
+    * `must` severity with empty `evidence` -> drop. A blocking finding
+      that the model cannot even quote a diff line for is by definition
+      unverifiable; we would rather lose a real signal than ship a
+      confident hallucination.
+    * Non-empty `evidence` shorter than :data:`MIN_EVIDENCE_LEN` after
+      trimming -> drop (too generic to anchor a claim).
+    * Non-empty `evidence` not present as a substring of `diff_text`
+      after trimming -> drop.
+    * Otherwise -> keep.
+
+    Args:
+        review: The validated model output (post
+            :func:`_pr_review_llm._is_json_object` check). Mutated only
+            via shallow copy; the caller's dict is left untouched.
+        diff_text: The raw unified diff handed to the model. The same
+            string the model saw -- if the diff was truncated before
+            the call, evidence outside the truncated window is
+            considered ungrounded (correctly: the model cannot quote
+            something it did not receive).
+
+    Returns:
+        A two-tuple ``(filtered_review, dropped)`` where
+        ``filtered_review`` is a shallow copy with `general_comments`
+        replaced by the kept entries, and ``dropped`` is a list of
+        :data:`JsonObject` carrying the original comment plus a
+        ``_drop_reason`` key (``"must without evidence"``,
+        ``"evidence too short"``, ``"evidence not in diff"``, or
+        ``"malformed"``) so the orchestrator can emit one
+        ``::warning::`` line per drop.
+    """
+
+    raw = review.get("general_comments")
+    if not isinstance(raw, list):
+        return review, []
+    kept: list[JsonValue] = []
+    dropped: list[JsonObject] = []
+    for entry in raw:
+        if not isinstance(entry, dict):
+            dropped.append(
+                {
+                    "_drop_reason": "malformed",
+                    "severity": "must",
+                    "body": (
+                        f"_(bot dropped a malformed general comment: "
+                        f"expected object, got `{type(entry).__name__}`)_"
+                    ),
+                }
+            )
+            continue
+        severity = entry.get("severity")
+        body = entry.get("body")
+        evidence = entry.get("evidence", "")
+        if not (
+            isinstance(severity, str)
+            and isinstance(body, str)
+            and isinstance(evidence, str)
+        ):
+            dropped.append(
+                {
+                    "_drop_reason": "malformed",
+                    "severity": severity if isinstance(severity, str) else "must",
+                    "body": str(body) if body is not None else "(no body)",
+                }
+            )
+            continue
+        evidence_norm = evidence.strip()
+        if not evidence_norm:
+            if severity == "must":
+                dropped.append(
+                    {
+                        "_drop_reason": "must without evidence",
+                        "severity": severity,
+                        "body": body,
+                    }
+                )
+                continue
+            kept.append(entry)
+            continue
+        if len(evidence_norm) < MIN_EVIDENCE_LEN:
+            dropped.append(
+                {
+                    "_drop_reason": "evidence too short",
+                    "severity": severity,
+                    "body": body,
+                    "evidence": evidence,
+                }
+            )
+            continue
+        if evidence_norm not in diff_text:
+            dropped.append(
+                {
+                    "_drop_reason": "evidence not in diff",
+                    "severity": severity,
+                    "body": body,
+                    "evidence": evidence,
+                }
+            )
+            continue
+        kept.append(entry)
+    new_review: JsonObject = dict(review)
+    new_review["general_comments"] = kept
+    return new_review, dropped
+
+
 def _has_must_severity(review: JsonObject, demoted: list[JsonObject]) -> bool:
     """Return True if any item across the review has severity ``must``.
 
@@ -208,21 +337,29 @@ def _has_must_severity(review: JsonObject, demoted: list[JsonObject]) -> bool:
 
 
 def _build_review_body(
-    review: JsonObject, demoted: list[JsonObject], head_sha_marker: str
+    review: JsonObject,
+    demoted: list[JsonObject],
+    head_sha_marker: str,
+    *,
+    truncation_notice: str | None = None,
 ) -> str:
     """Assemble the markdown summary body posted to the Reviews API.
 
     Layout (sections joined with a blank line):
 
-    1. ``**Verdict:** \\`<verdict>\\``` -- the model's top-level
+    1. Optional ``truncation_notice`` italic line, when the diff was
+       cropped before being sent to the model. Surfacing this lets a
+       human reviewer know up-front that the bot may have missed
+       context outside the truncation window.
+    2. ``**Verdict:** \\`<verdict>\\``` -- the model's top-level
        verdict, or ``comment`` if the field is missing or non-string.
-    2. The ``summary`` paragraph from the model, when present.
-    3. One severity-grouped bullet section per severity in
+    3. The ``summary`` paragraph from the model, when present.
+    4. One severity-grouped bullet section per severity in
        :data:`_SEVERITY_ORDER` (only severities with at least one
        item are emitted; see :func:`_format_general_section`).
        Demoted inline comments are appended to the model's general
        comments before grouping so misaligned anchors still surface.
-    4. The dedup marker passed in by the caller. The marker MUST be
+    5. The dedup marker passed in by the caller. The marker MUST be
        present so the next workflow run can find it and skip
        re-reviewing the same head SHA.
 
@@ -235,6 +372,11 @@ def _build_review_body(
             :mod:`_pr_review_http`. The marker is passed through
             (rather than re-built here) so this module stays free of
             HTTP-layer constants.
+        truncation_notice: Optional sentence describing how the diff
+            was cropped before the LLM call (e.g.
+            ``"_Diff truncated to 120000 chars; findings outside that
+            window are not present._"``). Rendered verbatim as the
+            first section when supplied.
 
     Returns:
         The assembled markdown body string.
@@ -253,7 +395,10 @@ def _build_review_body(
     )
     combined: list[JsonObject] = general_items + demoted
 
-    sections: list[str] = [f"**Verdict:** `{verdict_text}`"]
+    sections: list[str] = []
+    if truncation_notice:
+        sections.append(truncation_notice)
+    sections.append(f"**Verdict:** `{verdict_text}`")
     if summary_text:
         sections.append(summary_text)
     for sev in _SEVERITY_ORDER:

@@ -220,13 +220,21 @@ REVIEW_JSON_SCHEMA: Final[JsonObject] = {
                 "items": {
                     "type": "object",
                     "additionalProperties": False,
-                    "required": ["severity", "body"],
+                    "required": ["severity", "body", "evidence"],
                     "properties": {
                         "severity": {
                             "type": "string",
                             "enum": ["must", "should", "nit"],
                         },
                         "body": {"type": "string"},
+                        # `evidence` MUST be either a verbatim substring of the
+                        # diff (>= MIN_EVIDENCE_LEN chars) or "" for true
+                        # cross-cutting concerns (no specific anchor line).
+                        # The runtime drops `must` general comments with empty
+                        # evidence and any general comment whose non-empty
+                        # evidence is not present in the diff. See
+                        # `_filter_general_comments`.
+                        "evidence": {"type": "string"},
                     },
                 },
             },
@@ -246,26 +254,57 @@ either `request_changes` (any `must` finding) or `comment` (only \
 `should` / `nit` findings). Branch protection that requires a human \
 review must not be satisfied by this bot.
 
-Hard constraints
-- Every claim must be grounded in a line that appears in the diff. For \
-inline comments, fill `quoted_line` with the exact text of the line from \
-the diff (no leading '+', no edits, no reflow).
-- If a concern cannot be verified from this diff alone, drop it. Do not \
-hedge with disclaimers; just drop it.
-- Do not comment on whole-file properties you cannot measure from a diff \
-(file length, total LOC, package layout, anything outside the changed \
-hunks).
+Hard constraints (anti-hallucination -- runtime enforces)
+- Every claim must be grounded in a line that appears in the diff you \
+were given. The diff is the only source of truth; do NOT rely on \
+training-set memory of how this codebase "usually" looks.
+- For each `inline_comments` entry, fill `quoted_line` with the exact \
+text of the line from the diff (no leading '+', no edits, no reflow). \
+The runtime re-parses the diff and drops anchors that are not in it.
+- For each `general_comments` entry, fill `evidence` with EITHER a \
+verbatim substring of a diff line that supports the claim (at least \
+8 characters; longer is better), OR an empty string for a true \
+cross-cutting concern (e.g. "no test added for the new branch"). The \
+runtime checks every `evidence` field against the diff text and \
+DROPS:
+  * any `must` general comment with empty `evidence`, and
+  * any general comment whose non-empty `evidence` is not a substring \
+of the diff.
+Inventing or paraphrasing `evidence` will cause the finding to be \
+silently dropped, and a `::warning::` will be emitted to the CI log \
+naming the comment that was dropped. Do not bypass the check; if you \
+cannot quote the diff verbatim, drop the claim.
+- When you assert that a definition is missing something (docstring, \
+type annotation, error handling, etc.), the `def` / `class` / \
+signature line of the target MUST appear in the diff. The diff showing \
+only a CALL of a function is NOT enough to judge its definition. If \
+the relevant definition line is not in the diff, drop the claim.
+- Common hallucinations to avoid:
+  * Claiming a function lacks a Google-style docstring when the diff \
+shows a triple-quoted string immediately after the `def` line.
+  * Claiming a function lacks a `-> Type` return annotation when the \
+diff shows `) -> ...:` on the signature line.
+  * Restating items from this prompt's checklist without finding them \
+in the diff. The prompt is a guide, not a list of findings to emit.
+- Do not comment on whole-file properties you cannot measure from a \
+diff (file length, total LOC, package layout, anything outside the \
+changed hunks).
 - Inline comments must target a `path` and `line` that appear in the \
-allowed-anchors map provided in the user message. If you cannot anchor a \
-concern, put it in `general_comments` instead.
+allowed-anchors map provided in the user message. If you cannot anchor \
+a concern, put it in `general_comments` instead and supply `evidence`.
 - Prefer inline over general. Use `general_comments` only for true \
-cross-cutting concerns (e.g. missing test for a new branch).
+cross-cutting concerns (e.g. missing test for a new branch). For \
+those, set `evidence: ""` -- but only at severity `should` or `nit`. \
+A `must` finding without diff evidence is by definition unverifiable \
+and will be dropped.
 - Write each `body` as: <one-sentence problem>. <one concrete fix with \
 code or a specific instruction>. Never write "consider" or "you might \
 want to"; say "do X".
-- No filler. Empty arrays are fine. Do not pad with nits to look thorough.
+- No filler. Empty arrays are fine. Do not pad with nits to look \
+thorough. If you have nothing grounded to say, return empty arrays \
+and verdict `comment`.
 
-Severity = must (blocks merge)
+Severity = must (blocks merge; requires diff evidence)
 - New `Any`, untyped param/return, broad `except`, silent fallback, or \
 `# type: ignore` without an inline justification.
 - Public function/class/module added or modified without a Google-style \

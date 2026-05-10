@@ -36,7 +36,7 @@ Pure: no I/O, no GitHub or LLM dependency.
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from typing import Final
 
 from .config import Labels
@@ -48,26 +48,29 @@ from .schemas import EngineWarning, Reviewability
 from .size import WARN_CODE_TOO_LARGE_HUMAN_LOC, WARN_CODE_TOO_MANY_FILES
 
 # Concern-label rules in spec enumeration order. Each entry pairs the
-# set of warning codes that contribute to a concern with the
-# :class:`Labels` attribute that supplies the configured label name.
-# Adding a new heuristic means appending one row here; the rest of the
-# function is data-driven.
-_CONCERN_RULES: Final[tuple[tuple[frozenset[str], str], ...]] = (
+# set of warning codes that contribute to a concern with a typed getter
+# returning the configured label name from :class:`Labels`. Using a
+# closed mapping of ``Callable[[Labels], str]`` instead of dynamic
+# ``getattr(labels, attr)`` lets ``mypy --strict`` verify every accessor
+# at type-check time, so a misspelled rule key here is a build-time
+# failure rather than a silent KeyError-shaped bug at runtime.
+_LabelGetter = Callable[[Labels], str]
+_CONCERN_RULES: Final[tuple[tuple[frozenset[str], _LabelGetter], ...]] = (
     (
         frozenset({WARN_CODE_TOO_MANY_FILES, WARN_CODE_TOO_LARGE_HUMAN_LOC}),
-        "too_large",
+        lambda labels: labels.too_large,
     ),
     (
         frozenset({WARN_CODE_WEAK_BODY, WARN_CODE_MISSING_LINKED_ISSUE}),
-        "missing_context",
+        lambda labels: labels.missing_context,
     ),
     (
         frozenset({WARN_CODE_RISKY_NO_RATIONALE}),
-        "risky_change",
+        lambda labels: labels.risky_change,
     ),
     (
         frozenset({WARN_CODE_MIXED_CONCERN}),
-        "needs_split",
+        lambda labels: labels.needs_split,
     ),
 )
 
@@ -107,9 +110,9 @@ def suggested_labels(
     codes = {w.code for w in warnings}
     out: list[str] = [_verdict_label(verdict, labels)]
     seen: set[str] = {out[0]}
-    for codes_for_concern, label_attr in _CONCERN_RULES:
+    for codes_for_concern, get_label in _CONCERN_RULES:
         if codes & codes_for_concern:
-            label_name = getattr(labels, label_attr)
+            label_name = get_label(labels)
             if label_name not in seen:
                 seen.add(label_name)
                 out.append(label_name)

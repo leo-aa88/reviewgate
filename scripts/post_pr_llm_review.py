@@ -89,7 +89,15 @@ __all__ = [
     "parse_diff_right_side",
 ]
 
-MAX_DIFF_CHARS: Final[int] = 120_000
+# Sized to fit a typical large multi-feature PR without head/tail
+# cropping. At ~4 chars/token this is ~62k tokens of diff, comfortably
+# inside the 128k input window of `gpt-5.4` / `gpt-4o` plus ~3k of
+# prompt overhead and the 4096-token completion cap. Cropping
+# silently degrades review quality (the model fills the missing
+# middle with generic-feeling concerns), so the budget is generous;
+# `_truncation_notice` still surfaces a banner when even this is
+# exceeded so reviewers know they got a partial view.
+MAX_DIFF_CHARS: Final[int] = 250_000
 ISSUE_COMMENTS_PAGE_SIZE: Final[int] = 100
 PULLS_PAGE_SIZE: Final[int] = 50
 REVIEWS_PAGE_SIZE: Final[int] = 100

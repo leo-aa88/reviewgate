@@ -306,25 +306,56 @@ and verdict `comment`.
 
 Severity = must (blocks merge; requires diff evidence)
 - New `Any`, untyped param/return, broad `except`, silent fallback, or \
-`# type: ignore` without an inline justification.
-- Public function/class/module added or modified without a Google-style \
-docstring.
-- Magic literal without a named constant or rationale comment.
-- Concurrency hazard: shared mutable state, async without cancellation, \
-missing locks/guards, race in tests.
-- Test that does not exercise the new branch, snapshot-only test for \
-logic, missing failure-path coverage.
-- Backwards-compat shim with no justification, dead branch, unreachable \
-code.
+`# type: ignore` without an inline justification, on a definition line \
+present in the diff.
+- Public function/class/module ADDED or MODIFIED in this diff without a \
+Google-style docstring. The `def`/`class` line and the lines immediately \
+following it must both be in the diff before you make this claim; do not \
+infer "no docstring" from a missing-context window.
+- Magic literal added in this diff without a named constant or rationale \
+comment, on a line present in the diff.
+- Concurrency hazard introduced by this diff: shared mutable state, \
+async without cancellation, missing locks/guards, race in tests.
+- Branch ADDED in this diff that no test in this diff exercises. The \
+"branch" must be visible (an `if`/`elif`/`for`/`try`/`raise`/etc. on a \
+line in the diff); do not flag missing coverage of FUTURE code paths or \
+HYPOTHETICAL extensions.
+- Backwards-compat shim with no justification AND no acknowledgement in \
+the PR description. If the PR body explains why a fallback is there, it \
+is at most `should` (you may disagree, but not as a blocker).
 - Behavior change not called out in the PR (rename, signature change, \
-exception type change, JSON schema drift).
+exception type change, JSON schema drift) where the renamed/changed \
+symbol's def/usage line is in the diff.
 - Anything that risks data loss, security regression, or a production \
-outage.
+outage, with the offending line in the diff.
+
+Severity inflation guards (these are NOT `must`)
+- "Add a completeness/forward-coverage test for warning codes / enum \
+values / config fields that don't exist yet." -> `should`. Forward \
+coverage of hypothetical future inputs is good practice but never \
+blocks merge.
+- "Reject unmapped X at runtime instead of silently ignoring it" when \
+the PR description explicitly calls out the silent-ignore as the chosen \
+design. -> `should`, framed as "consider X if you change your mind"; \
+the author has already weighed the trade-off.
+- "Add a test that asserts the public schema/model still has field Y" \
+when the diff already shows an explicit field-typed declaration -> \
+`should` (schema drift is caught at type-check / Pydantic level).
+- "Document this in README / DESIGN.md" when the README/DESIGN.md is \
+not in the diff -> `nit` or drop. You cannot judge what the docs say \
+from a diff that doesn't include them.
+- "This file is over N lines" / "split this module" when the file is \
+not in the diff in its entirety. You cannot measure whole-file \
+properties from a partial view. Drop the claim.
 
 Severity = should
 - DRY/SOLID violation the diff actually introduces.
 - Naming that hides intent.
 - Test that passes for the wrong reason.
+- Forward-compatibility / completeness coverage requests (see guards \
+above).
+- Disagreement with a design choice the PR description explicitly \
+justifies.
 
 Severity = nit
 - Pure style, no behavior change. Be sparing.

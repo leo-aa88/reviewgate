@@ -1,0 +1,14 @@
+---
+description: Watch open GitHub PRs and post senior Python reviews for this repo
+alwaysApply: true
+---
+
+# Pull request watch (reviewgate-core)
+
+When the user cares about PRs, CI, or merging, **do not assume** there are no open PRs.
+
+1. Run: `gh pr list --repo leo-aa88/reviewgate-core --state open --json number,title,url`
+2. For each open PR, fetch the diff (`gh pr diff <number> --repo leo-aa88/reviewgate-core`) and review against project standards: strict typing (no silent `Any`), Google-style docstrings on public APIs, file size (non-test under 500 LOC preferred, max 600), modularity, no compat fallbacks without agreement, no magic literals without names, correctness and tests, concurrency safety, KISS/DRY, SOLID/clean code.
+3. Post one consolidated review comment per PR: `gh pr comment <number> --repo leo-aa88/reviewgate-core --body-file -` (or `--body`), with concrete file/line references and requested changes, or an explicit approval if the bar is met.
+
+If `gh` is unavailable or the user is not authenticated, say so and stop after listing what you would have checked.

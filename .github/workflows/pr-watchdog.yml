@@ -1,0 +1,64 @@
+name: PR watchdog
+
+on:
+  pull_request:
+    types: [opened, reopened]
+
+permissions:
+  pull-requests: read
+  issues: write
+
+jobs:
+  post-review-bar:
+    # Fork PRs get a read-only token for `pull_request`; skip commenting to avoid failed runs.
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - name: Post review checklist (once per PR)
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const marker = "<!-- reviewgate-pr-watchdog -->";
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const issue_number = context.payload.pull_request.number;
+
+            const { data: comments } = await github.rest.issues.listComments({
+              owner,
+              repo,
+              issue_number,
+              per_page: 100,
+            });
+            if (comments.some((c) => (c.body || "").includes(marker))) {
+              core.info("Watchdog comment already present; skipping.");
+              return;
+            }
+
+            const body = [
+              marker,
+              "",
+              "### ReviewGate — PR review bar (automated)",
+              "",
+              "A senior Python review should confirm the following before merge.",
+              "",
+              "**Typing:** Strong typing everywhere. `Any` or missing annotations need explicit justification or a fix.",
+              "",
+              "**Pre-merge checklist:**",
+              "- [ ] All quality gates pass (CI, and any project linters/typecheckers once enabled).",
+              "- [ ] Google-style docstrings on public modules, classes, and functions.",
+              "- [ ] Non-test source files stay modular; prefer **< 500 LOC**, hard cap **600 LOC** per file.",
+              "- [ ] No backwards-compatibility fallbacks unless explicitly agreed.",
+              "- [ ] No unexplained magic numbers or magic strings (use named constants / config).",
+              "- [ ] Implementation is correct and tested where behavior matters.",
+              "- [ ] No race conditions (async, threads, shared mutable state).",
+              "- [ ] KISS, DRY, clean code, SOLID where it helps; sensible patterns, avoid common anti-patterns.",
+              "",
+              "_This comment is posted automatically when a PR opens; it is not a substitute for human or agent code review._",
+            ].join("\n");
+
+            await github.rest.issues.createComment({
+              owner,
+              repo,
+              issue_number,
+              body,
+            });

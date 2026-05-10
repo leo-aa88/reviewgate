@@ -242,12 +242,39 @@ def test_github_webhook_installation_created_without_redis(
     send.assert_not_called()
 
 
+def test_github_webhook_installation_deleted_legacy_204_shim(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Optional rollback flag restores the pre-#36 **204** no-op for ``deleted``."""
+
+    monkeypatch.setenv("REVIEWGATE_GITHUB_WEBHOOK_SECRET", "whsec")
+    monkeypatch.setenv("REVIEWGATE_LEGACY_INSTALLATION_DELETED_WEBHOOK_204", "true")
+    body = b'{"action":"deleted","installation":{"id":1}}'
+    with patch.object(
+        github_webhook_module,
+        "persist_installation_webhook_payload",
+    ) as persist:
+        with TestClient(create_app()) as client:
+            response = client.post(
+                "/webhooks/github",
+                content=body,
+                headers={
+                    "x-hub-signature-256": _signature(body, "whsec"),
+                    "x-github-delivery": "del-legacy",
+                    "x-github-event": "installation",
+                },
+            )
+    assert response.status_code == 204
+    persist.assert_not_called()
+
+
 def test_github_webhook_installation_deleted_persists(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """``installation`` ``deleted`` is persisted like other mutation events (#36)."""
 
     monkeypatch.setenv("REVIEWGATE_GITHUB_WEBHOOK_SECRET", "whsec")
+    monkeypatch.delenv("REVIEWGATE_LEGACY_INSTALLATION_DELETED_WEBHOOK_204", raising=False)
     body = b'{"action":"deleted","installation":{"id":1}}'
     with patch.object(
         github_webhook_module,

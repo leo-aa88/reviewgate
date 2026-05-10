@@ -72,3 +72,10 @@ class AppSettings(BaseSettings):
             "(``docs/DESIGN.md`` §13.3). Never log this value."
         ),
     )
+    legacy_installation_deleted_webhook_204: bool = Field(
+        default=False,
+        description=(
+            "When true, ``installation.deleted`` returns **204** and skips "
+            "persistence (pre-issue-#36 behavior) for emergency rollback."
+        ),
+    )

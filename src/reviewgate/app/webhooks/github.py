@@ -105,6 +105,13 @@ async def _handle_installation_style_webhook(
         if action not in ("added", "removed"):
             return Response(status_code=status.HTTP_204_NO_CONTENT)
 
+    if (
+        event_name == "installation"
+        and action == "deleted"
+        and settings.legacy_installation_deleted_webhook_204
+    ):
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+
     if not delivery_id.strip():
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST,

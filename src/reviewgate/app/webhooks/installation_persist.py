@@ -204,7 +204,10 @@ def _installation_deleted(session: Session, payload: dict[str, Any]) -> None:
     now = datetime.now(timezone.utc)
     session.execute(
         update(Installation)
-        .where(Installation.id == installation_uuid)
+        .where(
+            Installation.id == installation_uuid,
+            Installation.deleted_at.is_(None),
+        )
         .values(deleted_at=now),
     )
     session.execute(

@@ -2,8 +2,9 @@
 
 Validates ``X-Hub-Signature-256`` using the configured webhook secret, then
 enqueues a lightweight Dramatiq message carrying delivery metadata so the HTTP
-request returns quickly (§13.3). Payload persistence and delivery dedupe are
-handled in later issues (#34, #50).
+request returns quickly (§13.3). The actor module is imported inside the handler
+so FastAPI lifespan can install the Redis broker first. Payload persistence and
+delivery dedupe are handled in later issues (#34, #50).
 """
 
 from __future__ import annotations
@@ -15,7 +16,6 @@ from typing import Final
 from fastapi import APIRouter, HTTPException, Request, Response, status
 from pydantic import SecretStr
 
-from reviewgate.app.analysis.jobs import run_pr_analysis_stub
 from reviewgate.app.settings import AppSettings
 
 router = APIRouter()
@@ -69,6 +69,8 @@ async def github_webhook(request: Request) -> Response:
 
     delivery_id = request.headers.get("x-github-delivery", "")
     event_name = request.headers.get("x-github-event", "")
+
+    from reviewgate.app.analysis.jobs import run_pr_analysis_stub
 
     run_pr_analysis_stub.send(
         {

@@ -32,7 +32,9 @@ def test_github_webhook_rejects_bad_signature(
         "reviewgate.app.analysis.broker_install.RedisBroker",
         lambda **_: StubBroker(),
     ):
-        with patch("reviewgate.app.webhooks.github.run_pr_analysis_stub.send") as send:
+        with patch(
+            "reviewgate.app.analysis.jobs.run_pr_analysis_stub.send",
+        ) as send:
             with TestClient(create_app()) as client:
                 response = client.post(
                     "/webhooks/github",
@@ -71,7 +73,7 @@ def test_github_webhook_rejects_when_redis_unconfigured(
     monkeypatch.setenv("REVIEWGATE_GITHUB_WEBHOOK_SECRET", "s")
     monkeypatch.delenv("REVIEWGATE_REDIS_URL", raising=False)
     body = b"{}"
-    with patch("reviewgate.app.webhooks.github.run_pr_analysis_stub.send") as send:
+    with patch("reviewgate.app.analysis.jobs.run_pr_analysis_stub.send") as send:
         with TestClient(create_app()) as client:
             response = client.post(
                 "/webhooks/github",
@@ -99,7 +101,9 @@ def test_github_webhook_accepts_valid_signature_and_enqueues(
         "reviewgate.app.analysis.broker_install.RedisBroker",
         lambda **_: StubBroker(),
     ):
-        with patch("reviewgate.app.webhooks.github.run_pr_analysis_stub.send") as send:
+        with patch(
+            "reviewgate.app.analysis.jobs.run_pr_analysis_stub.send",
+        ) as send:
             with TestClient(create_app()) as client:
                 response = client.post(
                     "/webhooks/github",

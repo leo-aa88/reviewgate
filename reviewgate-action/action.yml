@@ -14,8 +14,11 @@
 #
 # The actual fetch / core / comment / fail-on logic lands in the
 # follow-on issues (#24, #25, #26). This scaffold validates the inputs
-# and exits cleanly so the metadata can be referenced by consumers and
-# integration-tested before the runtime is wired up.
+# and then **fails closed** with `::error::` + `exit 1` so a workflow
+# that names this Action as a required status check cannot silently
+# mark a PR mergeable while the §14 review pipeline is still missing.
+# The only successful exit path is the input-validation error path
+# (exit 2), which still proves wrong inputs are caught early.
 
 name: ReviewGate
 description: >-

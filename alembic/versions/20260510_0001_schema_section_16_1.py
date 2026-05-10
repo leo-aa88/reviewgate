@@ -4,6 +4,10 @@ Creates ``installations``, ``repositories``, ``analyses``, ``analysis_reports``,
 ``beta_leads``, and ``webhook_deliveries`` with the composite unique key and
 indexes specified in the design document.
 
+Primary-key defaults use PostgreSQL's ``gen_random_uuid()``, which is provided
+in core as of PostgreSQL 13 without creating the ``uuid-ossp`` or ``pgcrypto``
+extensions (see PostgreSQL release notes for ``gen_random_uuid``).
+
 Revision ID: 16_1_0001
 Revises:
 Create Date: 2026-05-10

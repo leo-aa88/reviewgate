@@ -19,6 +19,7 @@ dev = ["pytest>=8.0"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["src"]
 
 [tool.hatch.build.targets.wheel]
-packages = ["reviewgate"]
+packages = ["src/reviewgate"]

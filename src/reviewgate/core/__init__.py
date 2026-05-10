@@ -10,6 +10,7 @@ from . import (
     paths,
     report,
     schemas,
+    size,
 )
 from .aggregate import baseline_reviewability
 from .categorizer import Categorizer, categorize_changed_files
@@ -22,6 +23,7 @@ from .config import (
 )
 from .engine import analyze
 from .paths import PathMatcher, match_any
+from .size import SizeStats, compute_size_stats, size_warnings
 from .schemas import (
     ChangedFile,
     EngineInput,
@@ -54,12 +56,14 @@ __all__ = [
     "WarningSeverity",
     "Categorizer",
     "PathMatcher",
+    "SizeStats",
     "aggregate",
     "analyze",
     "baseline_reviewability",
     "categorize_changed_files",
     "categorizer",
     "cli",
+    "compute_size_stats",
     "config",
     "engine",
     "heuristics",
@@ -68,4 +72,6 @@ __all__ = [
     "paths",
     "report",
     "schemas",
+    "size",
+    "size_warnings",
 ]

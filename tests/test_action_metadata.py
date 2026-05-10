@@ -14,6 +14,8 @@ Pure: no I/O beyond reading text files in the repo.
 
 from __future__ import annotations
 
+import re
+import subprocess
 from pathlib import Path
 from typing import Any, Final
 
@@ -266,31 +268,198 @@ def test_top_level_readme_includes_design_doc_snippet() -> None:
     assert "post-comment: true" in readme
 
 
+_FENCED_USES_RE: Final[re.Pattern[str]] = re.compile(
+    r"```yaml\n(?P<body>.*?)\n```",
+    re.DOTALL,
+)
+_USES_LINE_RE: Final[re.Pattern[str]] = re.compile(
+    r"^\s*-\s+uses:\s+(?P<ref>\S+)\s*$",
+    re.MULTILINE,
+)
+
+
+def _uses_refs_in_yaml_blocks(readme_text: str) -> list[str]:
+    """Return every ``- uses: …`` value inside a fenced ```yaml block.
+
+    Centralized so tests assert against the *executable* snippet a
+    consumer would copy-paste, not against a stray prose mention.
+    A bot's earlier critique was right that asserting on the first
+    occurrence in the README would silently pass if the snippet
+    drifted while a backticked prose mention stayed correct; this
+    helper confines the search to fenced YAML.
+    """
+
+    refs: list[str] = []
+    for block in _FENCED_USES_RE.finditer(readme_text):
+        for match in _USES_LINE_RE.finditer(block.group("body")):
+            refs.append(match.group("ref"))
+    return refs
+
+
 def test_action_subdirectory_path_in_uses_resolves_to_real_action_yml() -> None:
     """The README's ``uses:`` subdirectory path must hit a real ``action.yml``.
 
-    Concretely: parse the ``{path}`` segment from the documented
-    ``leo-aa88/reviewgate-core/{path}@v1`` reference and assert that
+    Concretely: extract every ``- uses:`` value inside a fenced
+    ```yaml block in the top-level README, find the
+    ``leo-aa88/reviewgate-core/<path>@<ref>`` reference, and assert
     ``<repo>/<path>/action.yml`` exists on disk. Catches the
     foot-gun of documenting a path that does not match the actual
-    repository layout, which would otherwise only fail at consumer
-    runtime with a "Can't find 'action.yml'" error from the runner.
+    repository layout (would otherwise only fail at consumer
+    runtime with "Can't find 'action.yml'") *and* refuses to be
+    fooled by a backticked prose mention -- the snippet itself is
+    what consumers copy.
     """
 
     readme = _TOP_README.read_text(encoding="utf-8")
-    marker = "leo-aa88/reviewgate-core/"
-    assert marker in readme
-    after = readme.split(marker, 1)[1]
-    path_segment = after.split("@", 1)[0].strip()
-    resolved = _REPO_ROOT / path_segment / "action.yml"
-    assert resolved.is_file(), (
-        f"README documents `uses: leo-aa88/reviewgate-core/{path_segment}` "
-        f"but {resolved.relative_to(_REPO_ROOT)} does not exist; the "
-        "subdirectory `uses:` form requires a real action.yml at that path"
+    refs = _uses_refs_in_yaml_blocks(readme)
+    assert refs, "README must contain at least one fenced YAML `uses:` line"
+
+    repo_prefix = "leo-aa88/reviewgate-core/"
+    matching = [r for r in refs if r.startswith(repo_prefix)]
+    assert matching, (
+        f"README's fenced YAML must reference the Action via "
+        f"`uses: {repo_prefix}<path>@<ref>`; got refs={refs}"
     )
-    assert resolved == _ACTION_YML, (
-        f"documented `uses:` resolves to {resolved}, but the test fixture "
-        f"expects {_ACTION_YML}"
+    for ref in matching:
+        path_segment = ref[len(repo_prefix) :].split("@", 1)[0].strip()
+        assert path_segment, f"empty subdirectory path in `uses: {ref}`"
+        resolved = _REPO_ROOT / path_segment / "action.yml"
+        assert resolved.is_file(), (
+            f"README documents `uses: {ref}` but "
+            f"{resolved.relative_to(_REPO_ROOT)} does not exist; the "
+            "subdirectory `uses:` form requires a real action.yml at "
+            "that path"
+        )
+        assert resolved == _ACTION_YML, (
+            f"documented `uses: {ref}` resolves to "
+            f"{resolved.relative_to(_REPO_ROOT)}, but the test fixture "
+            f"expects {_ACTION_YML.relative_to(_REPO_ROOT)}"
+        )
+
+
+# --- shell validation branches (composite step is bash, so the input ----
+# enum branches are exercised by running the same script body the
+# Action would run, under the same env-var contract.
+
+_SCAFFOLD_BASH_BODY: Final[str] = ""
+"""Filled lazily in :func:`_scaffold_step_body`; cached at module load."""
+
+
+def _scaffold_step_body() -> str:
+    """Extract the composite step's ``run:`` shell body from action.yml.
+
+    Pulled out of the YAML so the shell tests stay in lockstep with
+    the actual Action behaviour: any change to the validation
+    branches in `action.yml` is reflected here automatically.
+    """
+
+    metadata = yaml.safe_load(_ACTION_YML.read_text(encoding="utf-8"))
+    body = metadata["runs"]["steps"][0]["run"]
+    assert isinstance(body, str) and body.strip()
+    return body
+
+
+def _run_scaffold_script(
+    *,
+    fail_on: str,
+    post_comment: str,
+    mode: str,
+    tmp_path: Path,
+) -> subprocess.CompletedProcess[str]:
+    """Execute the scaffold's bash body with the given env vars.
+
+    Mimics the GitHub Actions runner: writes the step body to a
+    temp file, sets the same `REVIEWGATE_*` env vars the composite
+    step exports, and points `GITHUB_OUTPUT` at a writable file so
+    `>> "${GITHUB_OUTPUT}"` lines work even though the scaffold no
+    longer writes any.
+
+    Returns the completed process so callers can assert on
+    ``returncode``, ``stdout``, and ``stderr``.
+    """
+
+    script = tmp_path / "scaffold.sh"
+    script.write_text(_scaffold_step_body(), encoding="utf-8")
+    output = tmp_path / "github_output"
+    output.write_text("", encoding="utf-8")
+
+    return subprocess.run(  # noqa: S603 - intentional shell-out, fixed args
+        ["bash", str(script)],
+        env={
+            "REVIEWGATE_FAIL_ON": fail_on,
+            "REVIEWGATE_POST_COMMENT": post_comment,
+            "REVIEWGATE_MODE": mode,
+            "GITHUB_OUTPUT": str(output),
+            "PATH": "/usr/bin:/bin:/usr/local/bin",
+        },
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=15,
+    )
+
+
+def test_scaffold_script_exits_one_for_valid_inputs(tmp_path: Path) -> None:
+    """Valid inputs follow the fail-closed path (exit 1, ``::error::``).
+
+    The §14 review pipeline (PR fetch, core invocation, comment
+    upsert) is not implemented yet, so the scaffold must fail
+    closed with exit 1 to keep branch protection from silently
+    passing. Exit 1 (not 2) distinguishes "not implemented" from
+    "bad input".
+    """
+
+    proc = _run_scaffold_script(
+        fail_on="FAIL",
+        post_comment="true",
+        mode="auto",
+        tmp_path=tmp_path,
+    )
+    assert proc.returncode == 1, (
+        f"valid inputs must trigger the not-implemented exit 1 path; "
+        f"got returncode={proc.returncode}\nstdout={proc.stdout!r}\n"
+        f"stderr={proc.stderr!r}"
+    )
+    assert "::error::reviewgate-action scaffold is not runnable yet" in proc.stdout
+
+
+@pytest.mark.parametrize(
+    ("fail_on", "post_comment", "mode", "expected_substring"),
+    [
+        ("MAYBE", "true", "auto", "fail-on must be one of"),
+        ("FAIL", "yes", "auto", "post-comment must be 'true' or 'false'"),
+        ("FAIL", "true", "loud", "mode must be one of"),
+        ("", "true", "auto", "fail-on must be one of"),
+    ],
+)
+def test_scaffold_script_exits_two_for_invalid_inputs(
+    tmp_path: Path,
+    fail_on: str,
+    post_comment: str,
+    mode: str,
+    expected_substring: str,
+) -> None:
+    """Invalid input enums must fail with exit 2 + diagnostic ``::error::``.
+
+    Exercises the three documented enum contracts end to end (not
+    just by string-grepping the YAML) so the public input contract
+    cannot silently regress -- a bot reviewer flagged that pure
+    metadata tests can pass while the validation branches degrade.
+    """
+
+    proc = _run_scaffold_script(
+        fail_on=fail_on,
+        post_comment=post_comment,
+        mode=mode,
+        tmp_path=tmp_path,
+    )
+    assert proc.returncode == 2, (
+        f"invalid input must exit 2; got returncode={proc.returncode}\n"
+        f"stdout={proc.stdout!r}\nstderr={proc.stderr!r}"
+    )
+    assert expected_substring in proc.stdout, (
+        f"expected diagnostic containing {expected_substring!r} in stdout; "
+        f"got {proc.stdout!r}"
     )
 
 

@@ -282,6 +282,68 @@ def test_analyze_emits_missing_linked_issue_warning_by_default() -> None:
     assert warning.severity == "medium"
 
 
+def test_analyze_emits_risky_paths_without_rationale_warning_by_default() -> None:
+    """\u00a710.10 + \u00a712: risky file + silent body -> high warning."""
+
+    from reviewgate.core.risky_paths import WARN_CODE_RISKY_NO_RATIONALE
+
+    engine_input = EngineInput(
+        pr=_pr(
+            additions=10,
+            deletions=2,
+            changed_files=1,
+            body="Closes #1.\n\nQuick refactor of unrelated helpers in the codebase.",
+        ),
+        files=[_file("services/auth/login.py", changes=12)],
+    )
+    report = analyze(engine_input)
+
+    [warning] = [w for w in report.warnings if w.code == WARN_CODE_RISKY_NO_RATIONALE]
+    assert warning.severity == "high"
+    assert warning.evidence["risky_files"] == ["services/auth/login.py"]
+    assert warning.evidence["risky_categories"] == ["auth"]
+
+
+def test_analyze_silences_risky_paths_warning_when_body_mentions_category() -> None:
+    """A body that names the touched risky category passes the check."""
+
+    engine_input = EngineInput(
+        pr=_pr(
+            additions=10,
+            deletions=2,
+            changed_files=1,
+            body=(
+                "Closes #1.\n\nAdjusts the authentication middleware so "
+                "the session timeout is configurable per tenant."
+            ),
+        ),
+        files=[_file("services/auth/login.py", changes=12)],
+    )
+    report = analyze(engine_input)
+    assert report.warnings == []
+
+
+def test_analyze_downgrades_risky_warning_when_policy_disabled() -> None:
+    """\u00a712 `fail_on_risky_paths_without_context: false` -> medium severity."""
+
+    from reviewgate.core.risky_paths import WARN_CODE_RISKY_NO_RATIONALE
+
+    engine_input = EngineInput(
+        pr=_pr(
+            additions=10,
+            deletions=2,
+            changed_files=1,
+            body="Closes #1.\n\nRefactor of unrelated UI rendering helpers in the project.",
+        ),
+        files=[_file("services/auth/login.py", changes=12)],
+        config={"policy": {"fail_on_risky_paths_without_context": False}},
+    )
+    report = analyze(engine_input)
+
+    [warning] = [w for w in report.warnings if w.code == WARN_CODE_RISKY_NO_RATIONALE]
+    assert warning.severity == "medium"
+
+
 def test_analyze_respects_require_linked_issue_disabled_via_config() -> None:
     """\u00a712 ``policy.require_linked_issue: false`` silences the heuristic."""
 

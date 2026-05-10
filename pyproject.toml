@@ -13,6 +13,12 @@ authors = [{ name = "ReviewGate contributors" }]
 dependencies = [
     "pydantic>=2.7",
     "PyYAML>=6.0",
+    # `pathspec` is a pure-Python (no I/O, no native deps) gitignore-style
+    # glob matcher used by `reviewgate.core.paths` for §10.6-§10.9 file-pattern
+    # matching. Picked over a hand-rolled regex translator so we get
+    # battle-tested gitignore semantics for `**`, basename-only patterns
+    # (`Dockerfile`), and rooted paths (`vendor/**`).
+    "pathspec>=0.12",
 ]
 
 [project.scripts]

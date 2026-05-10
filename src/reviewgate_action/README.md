@@ -1,6 +1,6 @@
 # reviewgate-action
 
-GitHub Action wrapper around the deterministic engine ([`src/reviewgate/core/`](../reviewgate/core/); PyPI package `reviewgate`, §4.1) that runs the reviewability analysis on a pull request and (optionally, once #26 lands) posts the §13 summary comment. See `docs/DESIGN.md` §14 for the full design.
+GitHub Action wrapper around the deterministic engine ([`src/reviewgate/core/`](../reviewgate/core/); PyPI package `reviewgate`, §4.1) that runs the reviewability analysis on a pull request and, when §14.1 coexistence allows, posts the §13 summary comment. See `docs/DESIGN.md` §14 for the full design.
 
 > **Status: runtime complete (issues #24, #25, #26 landed).** The Action fetches PR metadata, loads `.reviewgate.yml`, runs the deterministic engine, prints the §10.2 report, applies the §14 `fail-on` policy, and (when §14.1 coexistence allows) upserts the §13 PR comment. By default (no `.reviewgate.yml` -> `mode: app`) the Action runs the engine for the workflow log + summary but stays quiet on the PR surface so the hosted App owns posting; switch to `mode: action` (per-workflow input or in `.reviewgate.yml`) to let the Action post.
 

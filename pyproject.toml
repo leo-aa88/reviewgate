@@ -76,11 +76,11 @@ dev = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-# ``src`` exposes ``reviewgate``; ``src/reviewgate_action`` exposes the nested
-# ``reviewgate_action`` package (see ``src/reviewgate_action/reviewgate_action/``).
-# Omit the repo root so pytest does not mask broken installs. ``tests`` enables
-# shared fixtures (``tests/fixtures/...``).
-pythonpath = ["src", "src/reviewgate_action", "tests"]
+# Only add ``tests`` so shared fixtures import; ``reviewgate`` and
+# ``reviewgate_action`` resolve via the editable / wheel install (``pip install
+# -e ".[dev]"``), matching production imports instead of shadowing them with
+# raw ``src/`` on ``PYTHONPATH``.
+pythonpath = ["tests"]
 
 [tool.hatch.build.targets.wheel]
 # Ship both ``reviewgate`` (engine) and ``reviewgate_action`` (GitHub Action runtime)

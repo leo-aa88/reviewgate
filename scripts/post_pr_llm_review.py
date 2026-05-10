@@ -1,8 +1,18 @@
 #!/usr/bin/env python3
-"""GitHub Actions helper: LLM PR review from diff, with per-head-SHA deduplication.
+"""GitHub Actions helper: LLM PR review from diff, with per-head-SHA dedup.
 
-Triggered on ``pull_request`` (open/sync/reopen) and on a schedule to catch
-missed webhooks. When ``OPENAI_API_KEY`` is unset, exits 0 without posting.
+The script runs on ``pull_request`` (open/sync/reopen/ready_for_review) and
+on a schedule to catch missed webhooks. When ``OPENAI_API_KEY`` is unset,
+it exits 0 without posting.
+
+Reviews are posted via the GitHub Pull Request Reviews API with inline
+review comments anchored to specific files and lines on the RIGHT side of
+the diff, so agents and humans see per-hunk feedback in the Files tab. A
+summary body carries the head-SHA marker used for deduplication.
+
+LLM concerns (prompt, schema, OpenAI call, diff parser) live in the sibling
+module :mod:`_pr_review_llm`; this file owns GitHub API I/O, dedup, payload
+construction, and the CLI entrypoint.
 """
 
 from __future__ import annotations
@@ -13,21 +23,25 @@ import ssl
 import sys
 import urllib.error
 import urllib.request
-from typing import Final, TypeAlias
+from typing import Final
 
-# Closed type for any value that survives a `json.loads` round-trip. We avoid
-# `typing.Any` because the project rule requires every `Any` to be justified;
-# JSON I/O is exactly the place where the precise shape is unknown but the set
-# of possible values is closed, so `JsonValue` carries that intent in the type.
-JsonValue: TypeAlias = (
-    "None | bool | int | float | str | list[JsonValue] | dict[str, JsonValue]"
+from _pr_review_llm import (
+    DiffIndex,
+    JsonObject,
+    JsonValue,
+    call_openai_review,
+    parse_diff_right_side,
 )
-JsonObject: TypeAlias = "dict[str, JsonValue]"
 
 MARKER_PREFIX: Final[str] = "<!-- reviewgate-ai-review:sha="
 MARKER_SUFFIX: Final[str] = " -->"
 MAX_DIFF_CHARS: Final[int] = 120_000
 GITHUB_API_VERSION: Final[str] = "2022-11-28"
+HTTP_TIMEOUT_SECS: Final[int] = 120
+ISSUE_COMMENTS_PAGE_SIZE: Final[int] = 100
+PULLS_PAGE_SIZE: Final[int] = 50
+REVIEWS_PAGE_SIZE: Final[int] = 100
+QUOTED_LINE_DISPLAY_LIMIT: Final[int] = 200
 
 
 def _marker(sha: str) -> str:
@@ -59,7 +73,7 @@ def _http_json(
         req.add_header("Content-Type", "application/json")
     ctx = ssl.create_default_context()
     try:
-        with urllib.request.urlopen(req, timeout=120, context=ctx) as resp:
+        with urllib.request.urlopen(req, timeout=HTTP_TIMEOUT_SECS, context=ctx) as resp:
             raw = resp.read().decode()
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode(errors="replace")
@@ -82,7 +96,7 @@ def _http_text(method: str, url: str, token: str, *, accept: str) -> str:
         req.add_header(k, v)
     ctx = ssl.create_default_context()
     try:
-        with urllib.request.urlopen(req, timeout=120, context=ctx) as resp:
+        with urllib.request.urlopen(req, timeout=HTTP_TIMEOUT_SECS, context=ctx) as resp:
             return resp.read().decode()
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode(errors="replace")
@@ -91,24 +105,58 @@ def _http_text(method: str, url: str, token: str, *, accept: str) -> str:
         ) from exc
 
 
-def _list_open_pulls(owner: str, repo: str, token: str) -> list[JsonObject]:
+def _list_paginated(
+    url_template: str, token: str, *, page_size: int
+) -> list[JsonObject]:
+    """Walk a paginated GitHub list endpoint to exhaustion.
+
+    Args:
+        url_template: A URL containing a single ``{page}`` placeholder; the
+            ``per_page`` query parameter is expected to already be baked in.
+        token: GitHub bearer token.
+        page_size: Page size encoded in the URL; used to detect the last page.
+    """
     out: list[JsonObject] = []
     page = 1
     while True:
-        url = (
-            f"https://api.github.com/repos/{owner}/{repo}/pulls"
-            f"?state=open&per_page=50&page={page}"
-        )
-        chunk = _http_json("GET", url, token)
+        chunk = _http_json("GET", url_template.format(page=page), token)
         if not isinstance(chunk, list) or not chunk:
             break
         for row in chunk:
             if isinstance(row, dict):
                 out.append(row)
-        if len(chunk) < 50:
+        if len(chunk) < page_size:
             break
         page += 1
     return out
+
+
+def _list_open_pulls(owner: str, repo: str, token: str) -> list[JsonObject]:
+    tmpl = (
+        f"https://api.github.com/repos/{owner}/{repo}/pulls"
+        f"?state=open&per_page={PULLS_PAGE_SIZE}&page={{page}}"
+    )
+    return _list_paginated(tmpl, token, page_size=PULLS_PAGE_SIZE)
+
+
+def _list_issue_comments(
+    owner: str, repo: str, issue_number: int, token: str
+) -> list[JsonObject]:
+    tmpl = (
+        f"https://api.github.com/repos/{owner}/{repo}/issues/{issue_number}/comments"
+        f"?per_page={ISSUE_COMMENTS_PAGE_SIZE}&page={{page}}"
+    )
+    return _list_paginated(tmpl, token, page_size=ISSUE_COMMENTS_PAGE_SIZE)
+
+
+def _list_pr_reviews(
+    owner: str, repo: str, pr_number: int, token: str
+) -> list[JsonObject]:
+    tmpl = (
+        f"https://api.github.com/repos/{owner}/{repo}/pulls/{pr_number}/reviews"
+        f"?per_page={REVIEWS_PAGE_SIZE}&page={{page}}"
+    )
+    return _list_paginated(tmpl, token, page_size=REVIEWS_PAGE_SIZE)
 
 
 def _fork_pr(repository: str, item: JsonObject) -> bool:
@@ -120,32 +168,24 @@ def _fork_pr(repository: str, item: JsonObject) -> bool:
     return isinstance(full, str) and full != repository
 
 
-def _list_issue_comments(
-    owner: str, repo: str, issue_number: int, token: str
-) -> list[JsonObject]:
-    out: list[JsonObject] = []
-    page = 1
-    while True:
-        url = (
-            f"https://api.github.com/repos/{owner}/{repo}/issues/{issue_number}/comments"
-            f"?per_page=100&page={page}"
-        )
-        chunk = _http_json("GET", url, token)
-        if not isinstance(chunk, list) or not chunk:
-            break
-        for row in chunk:
-            if isinstance(row, dict):
-                out.append(row)
-        if len(chunk) < 100:
-            break
-        page += 1
-    return out
+def _already_reviewed(
+    issue_comments: list[JsonObject],
+    reviews: list[JsonObject],
+    head_sha: str,
+) -> bool:
+    """Return True if any prior comment or review summary carries the marker.
 
-
-def _already_reviewed(comments: list[JsonObject], head_sha: str) -> bool:
+    Issue comments are still scanned to preserve compatibility with reviews
+    posted by older versions of this script (which used issue comments
+    rather than the Reviews API).
+    """
     needle = _marker(head_sha)
-    for c in comments:
+    for c in issue_comments:
         body = c.get("body")
+        if isinstance(body, str) and needle in body:
+            return True
+    for r in reviews:
+        body = r.get("body")
         if isinstance(body, str) and needle in body:
             return True
     return False
@@ -156,94 +196,182 @@ def _get_pr_diff(owner: str, repo: str, pr_number: int, token: str) -> str:
     return _http_text("GET", url, token, accept="application/vnd.github.diff")
 
 
-def _openai_review(diff_text: str, *, repo: str, pr_number: int) -> str:
-    api_key = os.environ["OPENAI_API_KEY"]
-    model = os.environ.get("OPENAI_MODEL") or "gpt-4o-mini"
-    base = (os.environ.get("OPENAI_BASE_URL") or "https://api.openai.com/v1").rstrip("/")
-    url = f"{base}/chat/completions"
+# Review payload construction -------------------------------------------------
 
-    system = (
-        "You are a senior Python reviewer commenting on a GitHub pull request.\n"
-        "\n"
-        "The project's python version is 3.12"
-        "\n"
-        """Assume the implementation is incomplete, overconfident or subtly wrong.
-         Verify acceptance criteria, tests, integrations points, secruity, error 
-         handling and whether this PR breaks existing behavior."""
-        "\n"
-        "You will be given a unified diff and nothing else. Ground every claim "
-        "in text that appears in that diff. Do not invent files, symbols, "
-        "imports, call sites, or behavior you cannot see. If a concern cannot "
-        "be verified from the diff alone, either omit it or label it "
-        "explicitly as `(unverified from diff)`.\n"
-        "\n"
-        "Do not comment on whole-file properties you cannot measure from a "
-        "diff: file length, total line count, overall package layout, or "
-        "anything outside the changed hunks. Review only the changed code.\n"
-        "\n"
-        "Standards to apply to the changed code:\n"
-        "- Strict typing: any new `Any`, untyped parameter, or untyped return "
-        "needs an inline justification in the code.\n"
-        "- Public functions, classes, and modules introduced or modified by "
-        "this diff have Google-style docstrings.\n"
-        "- No silent backwards-compatibility shims; new compat paths must be "
-        "explicitly justified.\n"
-        "- No unexplained magic literals; constants get names.\n"
-        "- Correctness, edge cases, and tests covering new branches.\n"
-        "- Concurrency safety where shared state, async, or threading is "
-        "touched.\n"
-        "- KISS / DRY / SOLID applied to what the diff actually changes.\n"
-        "\n"
-        "Output: a single GitHub-flavored markdown comment, no preamble, no "
-        "closing pleasantries, no restating of the PR title. Use this exact "
-        "structure and omit any section that has no items:\n"
-        "\n"
-        "**Summary** — one or two sentences: what the PR does and your "
-        "verdict (`approve`, `request changes`, or `nits only`).\n"
-        "\n"
-        "**Must-fix**\n"
-        "- `path/to/file.py` — concise issue, quoting the offending line or "
-        "hunk header from the diff; concrete fix.\n"
-        "\n"
-        "**Should-fix**\n"
-        "- same format.\n"
-        "\n"
-        "**Nits**\n"
-        "- same format.\n"
-        "\n"
-        "If the diff looks good, output only the Summary line with `approve` "
-        "and one or two concrete reasons grounded in the diff."
+_SEVERITY_LABEL: Final[dict[str, str]] = {
+    "must": "Must-fix",
+    "should": "Should-fix",
+    "nit": "Nit",
+}
+_SEVERITY_HEADING: Final[dict[str, str]] = {
+    "must": "Must-fix",
+    "should": "Should-fix",
+    "nit": "Nits",
+}
+_SEVERITY_ORDER: Final[tuple[str, ...]] = ("must", "should", "nit")
+
+
+def _normalize_path(path: str) -> str:
+    """Strip diff path prefixes the model sometimes echoes back."""
+    if path.startswith(("a/", "b/")):
+        return path[2:]
+    return path
+
+
+def _format_inline_body(body: str, severity: str, quoted_line: str) -> str:
+    label = _SEVERITY_LABEL.get(severity, severity)
+    quoted = quoted_line
+    if quoted.startswith(("+", "-", " ")):
+        quoted = quoted[1:]
+    quoted = quoted.rstrip("\n").rstrip()
+    if len(quoted) > QUOTED_LINE_DISPLAY_LIMIT:
+        quoted = quoted[:QUOTED_LINE_DISPLAY_LIMIT] + "…"
+    return f"**{label}.** {body}\n\n```\n{quoted}\n```"
+
+
+def _split_inline_comments(
+    raw_inline: list[JsonValue],
+    diff_index: DiffIndex,
+) -> tuple[list[JsonObject], list[JsonObject]]:
+    """Partition model inline comments into (valid_for_github, demoted).
+
+    Demoted entries are ones whose ``(path, line)`` is not present in the
+    parsed diff index; they are re-emitted into the review body as general
+    comments so feedback is not silently dropped when the model's anchor
+    misses (which still happens despite the schema and anchor map).
+    """
+    valid: list[JsonObject] = []
+    demoted: list[JsonObject] = []
+    for entry in raw_inline:
+        if not isinstance(entry, dict):
+            continue
+        path = entry.get("path")
+        line = entry.get("line")
+        body = entry.get("body")
+        severity = entry.get("severity")
+        quoted = entry.get("quoted_line")
+        if not (
+            isinstance(path, str)
+            and isinstance(line, int)
+            and isinstance(body, str)
+            and isinstance(severity, str)
+            and isinstance(quoted, str)
+        ):
+            continue
+        norm_path = _normalize_path(path)
+        if norm_path in diff_index and line in diff_index[norm_path]:
+            valid.append(
+                {
+                    "path": norm_path,
+                    "line": line,
+                    "side": "RIGHT",
+                    "body": _format_inline_body(body, severity, quoted),
+                }
+            )
+        else:
+            demoted.append(
+                {
+                    "severity": severity,
+                    "body": (
+                        f"`{norm_path}:{line}` — {body} "
+                        "_(originally inline; anchor not found in diff)_"
+                    ),
+                }
+            )
+    return valid, demoted
+
+
+def _format_general_section(items: list[JsonObject], severity: str) -> str | None:
+    rows = [
+        str(i.get("body"))
+        for i in items
+        if i.get("severity") == severity and isinstance(i.get("body"), str)
+    ]
+    if not rows:
+        return None
+    bullets = "\n".join(f"- {body}" for body in rows)
+    return f"**{_SEVERITY_HEADING[severity]}**\n{bullets}"
+
+
+def _has_must_severity(review: JsonObject, demoted: list[JsonObject]) -> bool:
+    """Return True if any item across the review has severity ``must``.
+
+    Inspects both inline and general comments from the model output, plus
+    any inline entries that were demoted to general because their anchor
+    failed validation.
+    """
+    for key in ("inline_comments", "general_comments"):
+        items = review.get(key)
+        if not isinstance(items, list):
+            continue
+        for item in items:
+            if isinstance(item, dict) and item.get("severity") == "must":
+                return True
+    return any(d.get("severity") == "must" for d in demoted)
+
+
+def _build_review_body(
+    review: JsonObject, demoted: list[JsonObject], head_sha: str
+) -> str:
+    summary = review.get("summary")
+    verdict = review.get("verdict")
+    summary_text = summary if isinstance(summary, str) else ""
+    verdict_text = verdict if isinstance(verdict, str) else "comment"
+
+    raw_general = review.get("general_comments")
+    general_items: list[JsonObject] = (
+        [g for g in raw_general if isinstance(g, dict)]
+        if isinstance(raw_general, list)
+        else []
     )
-    user = f"Repository {repo}, PR #{pr_number}.\n\n```diff\n{diff_text}\n```"
+    combined: list[JsonObject] = general_items + demoted
 
-    payload = {
-        "model": model,
-        "temperature": 0.2,
-        "max_tokens": 4096,
-        "messages": [
-            {"role": "system", "content": system},
-            {"role": "user", "content": user},
-        ],
+    sections: list[str] = [f"**Verdict:** `{verdict_text}`"]
+    if summary_text:
+        sections.append(summary_text)
+    for sev in _SEVERITY_ORDER:
+        block = _format_general_section(combined, sev)
+        if block is not None:
+            sections.append(block)
+    sections.append(_marker(head_sha))
+    return "\n\n".join(sections)
+
+
+def _decide_event(review: JsonObject, demoted: list[JsonObject]) -> str:
+    """Map review severities to a Reviews API ``event`` value.
+
+    We never APPROVE from a bot — that can satisfy branch protection
+    requiring a review and let unreviewed code through. ``REQUEST_CHANGES``
+    is used when there is any ``must`` finding (inline, general, or
+    demoted); otherwise ``COMMENT``.
+    """
+    return "REQUEST_CHANGES" if _has_must_severity(review, demoted) else "COMMENT"
+
+
+def _post_pr_review(
+    owner: str,
+    repo: str,
+    pr_number: int,
+    token: str,
+    *,
+    head_sha: str,
+    body: str,
+    event: str,
+    comments: list[JsonObject],
+) -> None:
+    url = f"https://api.github.com/repos/{owner}/{repo}/pulls/{pr_number}/reviews"
+    inline: list[JsonValue] = []
+    inline.extend(comments)
+    payload: JsonObject = {
+        "commit_id": head_sha,
+        "event": event,
+        "body": body,
+        "comments": inline,
     }
-    req = urllib.request.Request(
-        url,
-        data=json.dumps(payload).encode(),
-        method="POST",
-    )
-    req.add_header("Authorization", f"Bearer {api_key}")
-    req.add_header("Content-Type", "application/json")
-    ctx = ssl.create_default_context()
-    with urllib.request.urlopen(req, timeout=180, context=ctx) as resp:
-        data = json.loads(resp.read().decode())
-    try:
-        return str(data["choices"][0]["message"]["content"]).strip()
-    except (KeyError, IndexError, TypeError) as exc:
-        raise RuntimeError(f"Unexpected OpenAI response shape: {data!r}") from exc
+    _http_json("POST", url, token, body=payload)
 
 
-def _post_issue_comment(owner: str, repo: str, issue_number: int, token: str, body: str) -> None:
-    url = f"https://api.github.com/repos/{owner}/{repo}/issues/{issue_number}/comments"
-    _http_json("POST", url, token, body={"body": body})
+# Top-level orchestration ------------------------------------------------------
 
 
 def _maybe_truncate(diff: str) -> str:
@@ -257,7 +385,9 @@ def _maybe_truncate(diff: str) -> str:
     )
 
 
-def _process_pr(owner: str, repo: str, repository: str, pr_number: int, token: str) -> str:
+def _process_pr(
+    owner: str, repo: str, repository: str, pr_number: int, token: str
+) -> str:
     item = _http_json(
         "GET",
         f"https://api.github.com/repos/{owner}/{repo}/pulls/{pr_number}",
@@ -275,20 +405,49 @@ def _process_pr(owner: str, repo: str, repository: str, pr_number: int, token: s
     if not isinstance(head_sha, str) or len(head_sha) < 7:
         return "skip: missing head.sha"
 
-    comments = _list_issue_comments(owner, repo, pr_number, token)
-    if _already_reviewed(comments, head_sha):
+    issue_comments = _list_issue_comments(owner, repo, pr_number, token)
+    reviews = _list_pr_reviews(owner, repo, pr_number, token)
+    if _already_reviewed(issue_comments, reviews, head_sha):
         return f"skip: already reviewed {head_sha[:7]}"
 
     if not os.environ.get("OPENAI_API_KEY"):
-        print("::notice::OPENAI_API_KEY not set; skipping AI review (configure repo secret).")
+        print(
+            "::notice::OPENAI_API_KEY not set; skipping AI review "
+            "(configure repo secret)."
+        )
         return "skip: no OPENAI_API_KEY"
 
     diff_raw = _get_pr_diff(owner, repo, pr_number, token)
-    diff = _maybe_truncate(diff_raw)
-    review = _openai_review(diff, repo=f"{owner}/{repo}", pr_number=pr_number)
-    body = review + "\n\n" + _marker(head_sha)
-    _post_issue_comment(owner, repo, pr_number, token, body)
-    return f"posted review for {head_sha[:7]}"
+    diff_index = parse_diff_right_side(diff_raw)
+    diff_for_model = _maybe_truncate(diff_raw)
+
+    review = call_openai_review(
+        diff_for_model,
+        repo=f"{owner}/{repo}",
+        pr_number=pr_number,
+        diff_index=diff_index,
+    )
+    raw_inline = review.get("inline_comments")
+    inline_list: list[JsonValue] = (
+        list(raw_inline) if isinstance(raw_inline, list) else []
+    )
+    valid_inline, demoted = _split_inline_comments(inline_list, diff_index)
+    body = _build_review_body(review, demoted, head_sha)
+    event = _decide_event(review, demoted)
+    _post_pr_review(
+        owner,
+        repo,
+        pr_number,
+        token,
+        head_sha=head_sha,
+        body=body,
+        event=event,
+        comments=valid_inline,
+    )
+    return (
+        f"posted {event.lower()} review for {head_sha[:7]} "
+        f"(inline={len(valid_inline)}, demoted={len(demoted)})"
+    )
 
 
 def _event_pull_request() -> tuple[str, str, str, int] | None:
@@ -312,6 +471,7 @@ def _event_pull_request() -> tuple[str, str, str, int] | None:
 
 
 def main() -> int:
+    """CLI entrypoint invoked by ``.github/workflows/pr-llm-review.yml``."""
     token = os.environ.get("GITHUB_TOKEN")
     if not token:
         print("::error::GITHUB_TOKEN is required", file=sys.stderr)

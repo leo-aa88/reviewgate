@@ -7,14 +7,28 @@ import hmac
 from unittest.mock import patch
 
 import pytest
-from dramatiq.brokers.stub import StubBroker
 from fastapi.testclient import TestClient
 
 pytest.importorskip("fastapi")
 
+import dramatiq
+from dramatiq.brokers.stub import StubBroker
+
+from reviewgate.app.analysis import broker_install
 from reviewgate.app.main import create_app
 
 _PR_OPENED_BODY = b'{"action":"opened","number":1}'
+
+
+@pytest.fixture(autouse=True)
+def _reset_broker_install_state() -> None:
+    """Isolate process-global Dramatiq broker install flags between tests."""
+
+    broker_install._last_installed_redis_url = None
+    dramatiq.set_broker(StubBroker())
+    yield
+    broker_install._last_installed_redis_url = None
+    dramatiq.set_broker(StubBroker())
 
 
 def _signature(body: bytes, secret: str) -> str:
@@ -303,3 +317,52 @@ def test_github_webhook_accepts_valid_signature_and_enqueues(
         "github_event": "pull_request",
         "github_pull_request_action": "opened",
     }
+
+
+def test_github_webhook_reinstalls_broker_when_redis_url_changes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Changing ``REVIEWGATE_REDIS_URL`` must not reuse a stale Dramatiq broker."""
+
+    monkeypatch.setenv("REVIEWGATE_GITHUB_WEBHOOK_SECRET", "s")
+    monkeypatch.setenv("REVIEWGATE_REDIS_URL", "redis://host-a:6379/0")
+    body = _PR_OPENED_BODY
+    broker_urls: list[str | None] = []
+
+    def capture_redis_broker(**kwargs: object) -> StubBroker:
+        url_kw = kwargs.get("url")
+        broker_urls.append(url_kw if isinstance(url_kw, str) else None)
+        return StubBroker()
+
+    with patch(
+        "reviewgate.app.analysis.broker_install.RedisBroker",
+        side_effect=capture_redis_broker,
+    ):
+        with patch(
+            "reviewgate.app.analysis.jobs.run_pr_analysis_stub.send",
+        ) as send:
+            with TestClient(create_app()) as client:
+                r1 = client.post(
+                    "/webhooks/github",
+                    content=body,
+                    headers={
+                        "x-hub-signature-256": _signature(body, "s"),
+                        "x-github-delivery": "d1",
+                        "x-github-event": "pull_request",
+                    },
+                )
+                assert r1.status_code == 202
+                monkeypatch.setenv("REVIEWGATE_REDIS_URL", "redis://host-b:6379/0")
+                r2 = client.post(
+                    "/webhooks/github",
+                    content=body,
+                    headers={
+                        "x-hub-signature-256": _signature(body, "s"),
+                        "x-github-delivery": "d2",
+                        "x-github-event": "pull_request",
+                    },
+                )
+                assert r2.status_code == 202
+
+    assert broker_urls == ["redis://host-a:6379/0", "redis://host-b:6379/0"]
+    assert send.call_count == 2

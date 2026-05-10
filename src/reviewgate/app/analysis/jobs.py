@@ -61,9 +61,9 @@ def run_pr_analysis_stub(payload: dict[str, object]) -> None:
 def purge_old_webhook_deliveries(_payload: dict[str, object] | None = None) -> None:
     """Delete ``webhook_deliveries`` rows older than 30 days (§16.1).
 
-    The worker process invokes :meth:`dramatiq.Actor.fn` from a housekeeping
-    thread once per day (see :mod:`reviewgate.app.analysis.worker_app`). The
-    actor remains available for explicit ``send`` from thread-safe contexts.
+    Operators should run this daily via cron, Kubernetes CronJob, or a Dramatiq
+    message sent from a scheduler they control. The actor is safe to invoke
+    synchronously with :meth:`dramatiq.Actor.fn` from a maintenance job.
 
     Args:
         _payload: Unused; kept so callers can ``send({})`` like other actors.

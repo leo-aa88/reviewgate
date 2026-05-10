@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 import subprocess
 import sys
 from pathlib import Path
@@ -47,9 +46,5 @@ def test_worker_app_import_requires_redis_url(
         capture_output=True,
         text=True,
         check=False,
-        env={
-            **dict(os.environ),
-            "REVIEWGATE_DISABLE_WEBHOOK_PURGE_SCHEDULER": "1",
-        },
     )
     assert proc.returncode == 0, proc.stderr

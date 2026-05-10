@@ -441,6 +441,9 @@ def _process_pr(
     if _fork_pr(repository, item):
         return "skip: fork PR"
 
+    if item.get("draft") is True:
+        return "skip: draft PR"
+
     head_value = item.get("head")
     head: JsonObject = head_value if isinstance(head_value, dict) else {}
     head_sha = head.get("sha")

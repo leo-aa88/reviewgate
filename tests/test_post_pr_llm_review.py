@@ -21,6 +21,7 @@ exercise additional logic.
 
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -629,6 +630,146 @@ def test_process_pr_posts_review_with_anchored_and_demoted_findings(
     assert only["line"] == 2
     assert only["side"] == "RIGHT"
     assert "Use a constant." in str(only["body"])
+
+
+def test_process_pr_skips_draft_pull_request(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Draft PRs must not consume an OpenAI quota or post a review.
+
+    The module docstring lists ``ready_for_review`` as a trigger, so a
+    draft PR reaching ``_process_pr`` (e.g. via the schedule trigger
+    that catches missed webhooks) should short-circuit. Without the
+    `item["draft"]` check, the bot would post on every draft synchronise.
+    """
+
+    def fake_http_json(
+        method: str,
+        url: str,
+        token: str,
+        *,
+        accept: str = "application/vnd.github+json",
+        body: ppr.JsonObject | None = None,
+    ) -> ppr.JsonValue:
+        assert url.endswith("/pulls/9")
+        return {
+            "head": {"sha": "0" * 40, "repo": {"full_name": "o/r"}},
+            "draft": True,
+        }
+
+    monkeypatch.setattr(ppr, "_http_json", fake_http_json)
+
+    assert ppr._process_pr("o", "r", "o/r", 9, "tok") == "skip: draft PR"
+
+
+# ---------------------------------------------------------------------------
+# call_openai_review -- failure-path coverage for malformed responses
+# ---------------------------------------------------------------------------
+
+
+class _StubResponse:
+    """Minimal context-manager stand-in for ``urlopen``'s return value."""
+
+    def __init__(self, payload: object) -> None:
+        self._raw = json.dumps(payload).encode()
+
+    def __enter__(self) -> _StubResponse:
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        return None
+
+    def read(self) -> bytes:
+        return self._raw
+
+
+def _stub_urlopen(
+    monkeypatch: pytest.MonkeyPatch, payload: object
+) -> None:
+    import _pr_review_llm as llm
+
+    def fake_urlopen(
+        req: object, timeout: float = 0, context: object = None
+    ) -> _StubResponse:
+        return _StubResponse(payload)
+
+    monkeypatch.setattr(llm.urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setenv("OPENAI_API_KEY", "stub")
+
+
+@pytest.mark.parametrize(
+    ("payload", "match"),
+    [
+        ({}, "Unexpected OpenAI response shape"),
+        ({"choices": []}, "Unexpected OpenAI response shape"),
+        ({"choices": [{}]}, "Unexpected OpenAI response shape"),
+        ({"choices": [{"message": {}}]}, "Unexpected OpenAI response shape"),
+    ],
+)
+def test_call_openai_review_raises_on_missing_content_field(
+    monkeypatch: pytest.MonkeyPatch, payload: object, match: str
+) -> None:
+    from _pr_review_llm import call_openai_review
+
+    _stub_urlopen(monkeypatch, payload)
+    with pytest.raises(RuntimeError, match=match):
+        call_openai_review("diff", repo="o/r", pr_number=1, diff_index={})
+
+
+def test_call_openai_review_raises_on_non_json_content(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from _pr_review_llm import call_openai_review
+
+    _stub_urlopen(
+        monkeypatch,
+        {"choices": [{"message": {"content": "not-json-just-prose"}}]},
+    )
+    with pytest.raises(json.JSONDecodeError):
+        call_openai_review("diff", repo="o/r", pr_number=1, diff_index={})
+
+
+@pytest.mark.parametrize(
+    "content",
+    ["[1, 2, 3]", '"scalar"', "42", "null"],
+)
+def test_call_openai_review_raises_when_parsed_is_not_json_object(
+    monkeypatch: pytest.MonkeyPatch, content: str
+) -> None:
+    from _pr_review_llm import call_openai_review
+
+    _stub_urlopen(
+        monkeypatch, {"choices": [{"message": {"content": content}}]}
+    )
+    with pytest.raises(RuntimeError, match="non-JsonObject content"):
+        call_openai_review("diff", repo="o/r", pr_number=1, diff_index={})
+
+
+def test_call_openai_review_returns_validated_jsonobject(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from _pr_review_llm import call_openai_review
+
+    payload = {
+        "choices": [
+            {
+                "message": {
+                    "content": json.dumps(
+                        {
+                            "verdict": "comment",
+                            "summary": "ok",
+                            "inline_comments": [],
+                            "general_comments": [],
+                        }
+                    )
+                }
+            }
+        ]
+    }
+    _stub_urlopen(monkeypatch, payload)
+    out = call_openai_review("diff", repo="o/r", pr_number=1, diff_index={})
+    assert out["verdict"] == "comment"
+    assert out["inline_comments"] == []
 
 
 def test_post_pr_review_accepts_allowlisted_events(monkeypatch: pytest.MonkeyPatch) -> None:

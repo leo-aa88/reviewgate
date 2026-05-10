@@ -247,6 +247,29 @@ def test_list_paginated_does_not_format_braces_in_url(monkeypatch: pytest.Monkey
     assert seen == ["https://api.example.com/q?per_page=2&filter={weird}&page=1"]
 
 
+def test_list_paginated_raises_on_non_list_response(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Regression: a non-list payload must NOT terminate pagination silently.
+
+    If GitHub returns an error envelope (or any unexpected shape) that
+    leaks past ``_http_json``, treating it as "end of pagination" would
+    let ``_already_reviewed`` miss an existing dedup marker and post
+    duplicate reviews on the same head SHA. The helper now raises so
+    the failure is loud.
+    """
+
+    def fake_http_json(*args: object, **kwargs: object) -> ppr.JsonValue:
+        return {"message": "Not Found"}
+
+    monkeypatch.setattr(ppr, "_http_json", fake_http_json)
+
+    with pytest.raises(RuntimeError, match="Expected list from"):
+        ppr._list_paginated(
+            "https://api.example.com/q?per_page=2", "tok", page_size=2
+        )
+
+
 def test_list_paginated_uses_question_mark_when_base_has_none(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

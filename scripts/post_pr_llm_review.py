@@ -126,7 +126,16 @@ def _list_paginated(
     while True:
         url = f"{base_url}{separator}page={page}"
         chunk = _http_json("GET", url, token)
-        if not isinstance(chunk, list) or not chunk:
+        if not isinstance(chunk, list):
+            # An unexpected non-list response (e.g. an error envelope that
+            # leaked past _http_json) must not be silently treated as
+            # "no more pages". Doing so would let _already_reviewed miss
+            # an existing dedup marker and post duplicate reviews.
+            raise RuntimeError(
+                f"Expected list from {url}, got "
+                f"{type(chunk).__name__}: {chunk!r}"
+            )
+        if not chunk:
             break
         for row in chunk:
             if isinstance(row, dict):

@@ -389,6 +389,35 @@ def test_analyze_emits_suggested_labels_for_multi_warning_pr() -> None:
     ]
 
 
+def test_analyze_emits_suggested_labels_for_warn_verdict() -> None:
+    """\u00a710.2 + \u00a713.9: WARN PRs surface the warn verdict label and concerns.
+
+    Constructs a PR that fires exactly the linked-issue (#12) and
+    weak-body (#11) heuristics so the \u00a710.13 aggregator returns WARN
+    (two ``medium`` warnings, no ``high``). The warn verdict label
+    must come first, followed by the single ``missing_context``
+    concern label that both heuristics share.
+    """
+
+    engine_input = EngineInput(
+        pr=_pr(
+            additions=10,
+            deletions=2,
+            changed_files=1,
+            body="",  # empty -> weak_pr_body + missing_linked_issue
+        ),
+        files=[_file("README.md", changes=12)],
+    )
+    report = analyze(engine_input)
+
+    warn_verdict: Reviewability = "WARN"
+    assert report.reviewability == warn_verdict
+    assert report.suggested_labels == [
+        "reviewability-warn",
+        "missing-context",
+    ]
+
+
 def test_analyze_propagates_user_label_overrides_via_config() -> None:
     """\u00a712 ``labels`` overrides flow into ``suggested_labels`` end to end."""
 

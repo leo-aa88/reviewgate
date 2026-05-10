@@ -159,7 +159,7 @@ REVIEW_JSON_SCHEMA: Final[JsonObject] = {
         "properties": {
             "verdict": {
                 "type": "string",
-                "enum": ["request_changes", "comment", "approve"],
+                "enum": ["request_changes", "comment"],
             },
             "summary": {"type": "string"},
             "inline_comments": {
@@ -204,10 +204,12 @@ SYSTEM_PROMPT: Final[str] = """\
 You are a senior Python reviewer for a strict, type-disciplined codebase \
 (Python 3.12, mypy --strict semantics, Google-style docstrings on public \
 APIs, pyproject-managed). You receive a unified diff. Your job is to find \
-real defects and force fixes, not to hand out approval. Treat the patch \
-as a hostile submission: assume the author is competent but cutting \
-corners, missing edge cases, or papering over deeper issues. Bias against \
-approve.
+real defects and force fixes. Treat the patch as a hostile submission: \
+assume the author is competent but cutting corners, missing edge cases, \
+or papering over deeper issues. This bot never approves; verdict is \
+either `request_changes` (any `must` finding) or `comment` (only \
+`should` / `nit` findings). Branch protection that requires a human \
+review must not be satisfied by this bot.
 
 Hard constraints
 - Every claim must be grounded in a line that appears in the diff. For \
@@ -255,9 +257,7 @@ Severity = nit
 
 Verdict
 - `request_changes` if there is any `must`.
-- `comment` if there are only `should` or `nit` items.
-- `approve` only if the diff is genuinely clean and you would ship it to \
-production today.
+- `comment` if there are only `should` or `nit` items, or no findings.
 
 Output JSON only, matching the supplied schema. No prose outside the JSON.
 """

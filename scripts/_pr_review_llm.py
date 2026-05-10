@@ -373,11 +373,34 @@ def call_openai_review(
     ctx = ssl.create_default_context()
     with urllib.request.urlopen(req, timeout=OPENAI_TIMEOUT_SECS, context=ctx) as resp:
         data = json.loads(resp.read().decode())
-    try:
-        content = data["choices"][0]["message"]["content"]
-    except (KeyError, IndexError, TypeError) as exc:
-        raise RuntimeError(f"Unexpected OpenAI response shape: {data!r}") from exc
+    content = _extract_openai_content(data)
     parsed = json.loads(content) if isinstance(content, str) else content
     if not _is_json_object(parsed):
         raise RuntimeError(f"OpenAI returned non-JsonObject content: {content!r}")
     return parsed
+
+
+def _extract_openai_content(data: object) -> object:
+    """Walk the chat-completions response shape with explicit type checks.
+
+    The previous implementation wrapped the chained attribute lookup in
+    ``try/except (KeyError, IndexError, TypeError)``; that catches a
+    superset of the conditions we actually want to translate into
+    ``RuntimeError`` and could mask an unrelated ``TypeError`` from
+    deeper in the call stack. Each missing/wrongly-shaped field is
+    validated explicitly so any non-shape error from elsewhere
+    propagates unchanged.
+    """
+
+    if not isinstance(data, dict):
+        raise RuntimeError(f"Unexpected OpenAI response shape: {data!r}")
+    choices = data.get("choices")
+    if not isinstance(choices, list) or not choices:
+        raise RuntimeError(f"Unexpected OpenAI response shape: {data!r}")
+    first = choices[0]
+    if not isinstance(first, dict):
+        raise RuntimeError(f"Unexpected OpenAI response shape: {data!r}")
+    message = first.get("message")
+    if not isinstance(message, dict) or "content" not in message:
+        raise RuntimeError(f"Unexpected OpenAI response shape: {data!r}")
+    return message["content"]

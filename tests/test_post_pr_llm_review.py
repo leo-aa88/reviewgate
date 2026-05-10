@@ -632,6 +632,71 @@ def test_process_pr_posts_review_with_anchored_and_demoted_findings(
     assert "Use a constant." in str(only["body"])
 
 
+def test_process_pr_still_posts_marker_only_review_when_no_findings(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Empty-findings runs MUST still post (marker carries dedup state).
+
+    Skipping the post here would mean the next CI iteration on the same
+    head SHA re-runs the LLM (and pays for tokens) because no marker
+    was left in the Reviews API to satisfy ``_already_reviewed``.
+    The intended behavior is therefore to post a `COMMENT` review with
+    the marker and an empty `comments` array; this test locks that in
+    so a future "skip on empty" optimization cannot quietly regress
+    dedup.
+    """
+
+    head_sha = "feedface" + "0" * 32
+    diff_text = (
+        "diff --git a/foo.py b/foo.py\n"
+        "--- a/foo.py\n"
+        "+++ b/foo.py\n"
+        "@@ -1,1 +1,1 @@\n"
+        " line_one\n"
+    )
+
+    posted: dict[str, ppr.JsonObject] = {}
+
+    def fake_http_json(
+        method: str,
+        url: str,
+        token: str,
+        *,
+        accept: str = "application/vnd.github+json",
+        body: ppr.JsonObject | None = None,
+    ) -> ppr.JsonValue:
+        if method == "GET":
+            return {"head": {"sha": head_sha, "repo": {"full_name": "o/r"}}}
+        assert body is not None
+        posted["payload"] = body
+        return {}
+
+    monkeypatch.setattr(ppr, "_http_json", fake_http_json)
+    monkeypatch.setattr(ppr, "_http_text", lambda *a, **kw: diff_text)
+    monkeypatch.setattr(ppr, "_list_issue_comments", lambda *a, **kw: [])
+    monkeypatch.setattr(ppr, "_list_pr_reviews", lambda *a, **kw: [])
+    monkeypatch.setattr(
+        ppr,
+        "call_openai_review",
+        lambda *a, **kw: {
+            "verdict": "comment",
+            "summary": "no findings",
+            "inline_comments": [],
+            "general_comments": [],
+        },
+    )
+    monkeypatch.setenv("OPENAI_API_KEY", "stub")
+
+    result = ppr._process_pr("o", "r", "o/r", 11, "tok")
+
+    assert result.startswith("posted comment review for feedfac")
+    payload = posted["payload"]
+    assert payload["event"] == "COMMENT"
+    assert payload["commit_id"] == head_sha
+    assert ppr._marker(head_sha) in str(payload["body"])
+    assert payload["comments"] == []
+
+
 def test_process_pr_skips_draft_pull_request(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

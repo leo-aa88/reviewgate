@@ -364,7 +364,7 @@ def test_github_webhook_database_unavailable_returns_503(
 def test_github_webhook_duplicate_delivery_returns_202_without_enqueue(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A duplicate ``github_delivery_id`` short-circuits before ``.send`` (§13.3)."""
+    """A duplicate ``github_delivery_id`` returns **200** without ``.send`` (§13.3)."""
 
     monkeypatch.setenv("REVIEWGATE_GITHUB_WEBHOOK_SECRET", "s")
     monkeypatch.setenv("REVIEWGATE_REDIS_URL", "redis://127.0.0.1:6379/0")
@@ -390,7 +390,7 @@ def test_github_webhook_duplicate_delivery_returns_202_without_enqueue(
                             "x-github-event": "pull_request",
                         },
                     )
-    assert response.status_code == 202
+    assert response.status_code == 200
     send.assert_not_called()
 
 

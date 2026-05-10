@@ -146,7 +146,7 @@ async def github_webhook(request: Request) -> Response:
         event_name=event_name,
     )
     if claim_result == "duplicate":
-        return Response(status_code=status.HTTP_202_ACCEPTED)
+        return Response(status_code=status.HTTP_200_OK)
     if claim_result == "database_unavailable":
         raise HTTPException(
             status.HTTP_503_SERVICE_UNAVAILABLE,

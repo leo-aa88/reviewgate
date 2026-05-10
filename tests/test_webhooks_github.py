@@ -48,6 +48,17 @@ def _stub_github_webhook_delivery_claim(monkeypatch: pytest.MonkeyPatch) -> None
 
 
 @pytest.fixture(autouse=True)
+def _stub_persist_installation_payload(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Avoid live Postgres for installation webhooks (issue #35 unit tests)."""
+
+    monkeypatch.setattr(
+        github_webhook_module,
+        "persist_installation_webhook_payload",
+        lambda *_a, **_k: None,
+    )
+
+
+@pytest.fixture(autouse=True)
 def _reset_broker_install_state() -> None:
     """Isolate process-global Dramatiq broker install flags between tests."""
 
@@ -190,14 +201,18 @@ def test_github_webhook_ping_ok_without_redis(
     send.assert_not_called()
 
 
-def test_github_webhook_installation_ack_without_redis(
+def test_github_webhook_installation_created_without_redis(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Installation lifecycle events return 202 without enqueueing."""
+    """``installation`` ``created`` returns 202 without Redis or PR enqueue."""
 
     monkeypatch.setenv("REVIEWGATE_GITHUB_WEBHOOK_SECRET", "whsec")
     monkeypatch.delenv("REVIEWGATE_REDIS_URL", raising=False)
-    body = b'{"action":"created"}'
+    body = (
+        b'{"action":"created","installation":{'
+        b'"id":12345,"account":{"login":"acme","type":"Organization"}},'
+        b'"repositories":[]}'
+    )
     with patch("reviewgate.app.analysis.jobs.run_pr_analysis_stub.send") as send:
         with TestClient(create_app()) as client:
             response = client.post(
@@ -211,6 +226,125 @@ def test_github_webhook_installation_ack_without_redis(
             )
     assert response.status_code == 202
     send.assert_not_called()
+
+
+def test_github_webhook_installation_deleted_returns_204(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``installation`` ``deleted`` is out of scope for persistence (issue #36)."""
+
+    monkeypatch.setenv("REVIEWGATE_GITHUB_WEBHOOK_SECRET", "whsec")
+    body = b'{"action":"deleted","installation":{"id":1,"account":{"login":"x","type":"User"}}}'
+    with patch.object(
+        github_webhook_module,
+        "persist_installation_webhook_payload",
+    ) as persist:
+        with TestClient(create_app()) as client:
+            response = client.post(
+                "/webhooks/github",
+                content=body,
+                headers={
+                    "x-hub-signature-256": _signature(body, "whsec"),
+                    "x-github-delivery": "del-1",
+                    "x-github-event": "installation",
+                },
+            )
+    assert response.status_code == 204
+    persist.assert_not_called()
+
+
+def test_github_webhook_installation_created_invokes_persist(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``installation`` ``created`` calls ``persist_installation_webhook_payload``."""
+
+    monkeypatch.setenv("REVIEWGATE_GITHUB_WEBHOOK_SECRET", "s")
+    monkeypatch.delenv("REVIEWGATE_REDIS_URL", raising=False)
+    body = (
+        b'{"action":"created","installation":{'
+        b'"id":99,"account":{"login":"org","type":"Organization"}},'
+        b'"repositories":[{"id":1,"name":"r","full_name":"org/r",'
+        b'"private":false,"owner":{"login":"org"}}]}'
+    )
+    with patch.object(
+        github_webhook_module,
+        "persist_installation_webhook_payload",
+    ) as persist:
+        with TestClient(create_app()) as client:
+            response = client.post(
+                "/webhooks/github",
+                content=body,
+                headers={
+                    "x-hub-signature-256": _signature(body, "s"),
+                    "x-github-delivery": "ic-1",
+                    "x-github-event": "installation",
+                },
+            )
+    assert response.status_code == 202
+    persist.assert_called_once()
+    kwargs = persist.call_args.kwargs
+    assert kwargs["event_name"] == "installation"
+    assert kwargs["action"] == "created"
+
+
+def test_github_webhook_installation_repositories_removed_calls_persist(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``installation_repositories`` ``removed`` triggers persistence."""
+
+    monkeypatch.setenv("REVIEWGATE_GITHUB_WEBHOOK_SECRET", "s")
+    monkeypatch.delenv("REVIEWGATE_REDIS_URL", raising=False)
+    body = (
+        b'{"action":"removed","installation":{'
+        b'"id":7,"account":{"login":"u","type":"User"}},'
+        b'"repositories_removed":[{"id":100}]}'
+    )
+    with patch.object(
+        github_webhook_module,
+        "persist_installation_webhook_payload",
+    ) as persist:
+        with TestClient(create_app()) as client:
+            response = client.post(
+                "/webhooks/github",
+                content=body,
+                headers={
+                    "x-hub-signature-256": _signature(body, "s"),
+                    "x-github-delivery": "ir-1",
+                    "x-github-event": "installation_repositories",
+                },
+            )
+    assert response.status_code == 202
+    persist.assert_called_once()
+    assert persist.call_args.kwargs["action"] == "removed"
+
+
+def test_github_webhook_installation_requires_database_url(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``installation`` ``created`` requires ``REVIEWGATE_DATABASE_URL``."""
+
+    monkeypatch.delenv("REVIEWGATE_DATABASE_URL", raising=False)
+    monkeypatch.setenv("REVIEWGATE_GITHUB_WEBHOOK_SECRET", "s")
+    body = (
+        b'{"action":"created","installation":{'
+        b'"id":1,"account":{"login":"x","type":"User"}},"repositories":[]}'
+    )
+    with patch.object(
+        github_webhook_module,
+        "persist_installation_webhook_payload",
+    ) as persist:
+        with TestClient(create_app()) as client:
+            response = client.post(
+                "/webhooks/github",
+                content=body,
+                headers={
+                    "x-hub-signature-256": _signature(body, "s"),
+                    "x-github-delivery": "d",
+                    "x-github-event": "installation",
+                },
+            )
+    assert response.status_code == 503
+    persist.assert_not_called()
 
 
 def test_github_webhook_pull_request_edited_without_reviewable_changes_returns_204(
@@ -364,7 +498,7 @@ def test_github_webhook_database_unavailable_returns_503(
 def test_github_webhook_duplicate_delivery_returns_202_without_enqueue(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A duplicate ``github_delivery_id`` returns **200** without ``.send`` (§13.3)."""
+    """A duplicate ``github_delivery_id`` returns **202** without ``.send`` (§13.3)."""
 
     monkeypatch.setenv("REVIEWGATE_GITHUB_WEBHOOK_SECRET", "s")
     monkeypatch.setenv("REVIEWGATE_REDIS_URL", "redis://127.0.0.1:6379/0")
@@ -390,7 +524,7 @@ def test_github_webhook_duplicate_delivery_returns_202_without_enqueue(
                             "x-github-event": "pull_request",
                         },
                     )
-    assert response.status_code == 200
+    assert response.status_code == 202
     send.assert_not_called()
 
 

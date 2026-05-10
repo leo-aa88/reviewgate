@@ -96,7 +96,17 @@ def main(argv: list[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
 
-    raw = _read_input(args.input)
+    try:
+        raw = _read_input(args.input)
+    except FileNotFoundError as err:
+        print(f"{_PROG}: input file not found: {err.filename}", file=sys.stderr)
+        return _EXIT_INVALID_INPUT
+    except OSError as err:
+        # IsADirectoryError, PermissionError, and similar OS-level read
+        # failures all reduce to "this CLI cannot read that input"; the
+        # exit code stays the same as for any other unusable input.
+        print(f"{_PROG}: cannot read input: {err}", file=sys.stderr)
+        return _EXIT_INVALID_INPUT
 
     try:
         payload = json.loads(raw)

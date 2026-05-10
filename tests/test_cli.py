@@ -185,13 +185,43 @@ def test_cli_exits_two_on_unknown_top_level_key(
 
 def test_cli_exits_two_on_missing_input_file(
     tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """A missing ``--input`` path must not be silently treated as stdin."""
+    """A missing ``--input`` path exits 2 with a friendly stderr line.
+
+    We deliberately surface a CLI-style error rather than letting the
+    underlying :class:`FileNotFoundError` traceback escape; the exit
+    code matches every other unusable-input case so callers (CI scripts,
+    the GitHub Action wrapper) can rely on a single failure signal.
+    """
 
     missing = tmp_path / "does-not-exist.json"
 
-    with pytest.raises(FileNotFoundError):
-        main(["--input", str(missing)])
+    exit_code = main(["--input", str(missing)])
+
+    assert exit_code == _EXIT_INVALID_INPUT
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "input file not found" in captured.err
+    assert str(missing) in captured.err
+
+
+def test_cli_exits_two_when_input_path_is_a_directory(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Pointing ``--input`` at a directory exits 2 instead of crashing.
+
+    Same contract as the missing-file case: the CLI reduces every
+    OS-level read failure to "unusable input" with exit code 2.
+    """
+
+    exit_code = main(["--input", str(tmp_path)])
+
+    assert exit_code == _EXIT_INVALID_INPUT
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "cannot read input" in captured.err
 
 
 def test_cli_help_does_not_raise(

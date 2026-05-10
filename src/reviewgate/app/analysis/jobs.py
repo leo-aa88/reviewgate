@@ -1,7 +1,8 @@
 """Dramatiq actors for hosted PR analysis (stub until issue #50).
 
 ``docs/DESIGN.md`` §13.7 recommends Dramatiq + Redis so webhooks never block on
-analysis or LLM calls. This module defines **actors** (analysis stub plus housekeeping); the Redis broker is
+analysis or LLM calls. This module defines **actors** (analysis stub plus
+housekeeping); the Redis broker is
 installed via :func:`reviewgate.app.analysis.broker_install.install_redis_broker`
 from the GitHub webhook handler (issue #33) or in
 :mod:`reviewgate.app.analysis.worker_app` before this module is first imported
@@ -31,6 +32,11 @@ import dramatiq
 
 from reviewgate.app.settings import AppSettings
 from reviewgate.app.storage.db import create_engine_from_settings, create_session_factory
+from reviewgate.app.storage.repositories import (
+    begin_analysis_for_job_start,
+    mark_analysis_completed,
+    parse_analysis_job_natural_key,
+)
 from reviewgate.app.storage.webhook_purge import purge_webhook_deliveries_older_than
 from reviewgate.app.webhooks.enqueue_policy import installation_repository_may_enqueue_jobs
 
@@ -55,28 +61,50 @@ def run_pr_analysis_stub(payload: dict[str, object]) -> None:
             Kept as ``dict[str, object]`` until the worker contract is frozen.
             When ``github_installation_id`` and ``github_repository_id`` are set
             (issue #36), the actor skips work for soft-deleted installations or
-            inactive repositories before the real pipeline exists.
+            inactive repositories before the real pipeline exists. When all
+            optional ``reviewgate_repository_id`` (UUID string or instance),
+            ``reviewgate_pull_number``, ``reviewgate_head_sha``,
+            ``reviewgate_config_hash``, and ``reviewgate_pr_metadata_hash`` keys
+            are present, the stub persists ``analyses`` lifecycle rows per issue
+            #46 (``running`` then ``completed`` with reviewability ``PASS``), except
+            when another worker already holds ``running`` (``already_running``) or
+            the row is ``already_completed``.
     """
 
     settings = AppSettings()
     raw_inst = payload.get("github_installation_id")
     raw_repo = payload.get("github_repository_id")
-    if (
+    natural = parse_analysis_job_natural_key(payload)
+    need_installation_guard = (
         not isinstance(raw_inst, bool)
         and isinstance(raw_inst, int)
         and not isinstance(raw_repo, bool)
         and isinstance(raw_repo, int)
-    ):
-        engine = create_engine_from_settings(settings)
-        if engine is not None:
-            session_factory = create_session_factory(engine)
-            with session_factory() as session:
-                if not installation_repository_may_enqueue_jobs(
+    )
+    engine = create_engine_from_settings(settings)
+    if engine is None or not (need_installation_guard or natural is not None):
+        del payload
+        return
+
+    session_factory = create_session_factory(engine)
+    with session_factory() as session:
+        if need_installation_guard:
+            if not installation_repository_may_enqueue_jobs(
+                session,
+                github_installation_id=raw_inst,
+                github_repository_id=raw_repo,
+            ):
+                return
+
+        if natural is not None:
+            analysis_id, begin_kind = begin_analysis_for_job_start(session, natural)
+            if begin_kind not in ("already_completed", "already_running"):
+                mark_analysis_completed(
                     session,
-                    github_installation_id=raw_inst,
-                    github_repository_id=raw_repo,
-                ):
-                    return
+                    analysis_id,
+                    reviewability="PASS",
+                )
+        session.commit()
 
     del payload
 

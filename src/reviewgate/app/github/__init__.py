@@ -13,10 +13,18 @@ from reviewgate.app.github.auth import (
     fetch_installation_access_token,
     mint_github_app_jwt,
 )
+from reviewgate.app.github.client import (
+    GitHubRestError,
+    fetch_pull_request,
+    fetch_pull_request_files,
+)
 
 __all__ = [
     "GitHubAppAuthError",
+    "GitHubRestError",
     "InstallationAccessToken",
     "fetch_installation_access_token",
+    "fetch_pull_request",
+    "fetch_pull_request_files",
     "mint_github_app_jwt",
 ]

@@ -2,9 +2,8 @@
 
 GitHub Apps authenticate with a short-lived JSON Web Token (RS256) signed with
 the app's private key, then exchange that JWT for an **installation access
-token** scoped to a single installation. This module implements that flow
-using maintained libraries; it does **not** implement general REST helpers
-(issue #40).
+token** scoped to a single installation. This module implements that exchange
+only; REST reads live in :mod:`reviewgate.app.github.client` (issue #40).
 
 Secrets loaded via :class:`~reviewgate.app.settings.AppSettings` are typed as
 :class:`~pydantic.SecretStr` so they are redacted from logs and reprs; never

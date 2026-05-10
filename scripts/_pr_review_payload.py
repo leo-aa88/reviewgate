@@ -16,6 +16,7 @@ These helpers live in their own module because:
 
 from __future__ import annotations
 
+import re
 from typing import Final
 
 from _pr_review_llm import DiffIndex, JsonObject, JsonValue
@@ -28,6 +29,70 @@ QUOTED_LINE_DISPLAY_LIMIT: Final[int] = 200
 # model a free pass to invent findings; an 8-char floor forces the
 # evidence to carry actual signal.
 MIN_EVIDENCE_LEN: Final[int] = 8
+
+# Phrases that mark a `must` general comment as a TEST COVERAGE GAP
+# rather than a concrete defect. The system prompt classifies coverage
+# gaps as `should`, but the model has empirically ignored that rule;
+# this regex set is the runtime fallback that enforces it. Patterns
+# match conservatively: each one targets the canonical phrasing of a
+# coverage ask ("add a [...] test", "missing test for", "no test
+# exercises", etc.) so a finding that merely *mentions* tests in
+# passing is not downgraded.
+# Token vocabulary the model uses to qualify "test" in coverage asks.
+# Captured here as a single alternation so the per-pattern regex can
+# treat any combination (including pairs like "serialization round-trip
+# test") as a single noun phrase. Patterns are kept narrow -- e.g.
+# `round[-\s]?trip` rather than just `round`, so unrelated bodies that
+# happen to contain "Add a round of tests" do not match.
+_TEST_QUALIFIER: Final[str] = (
+    r"(?:"
+    r"direct|focused|new|missing|"
+    r"regression|completeness|forward[-\s]?compat\w*|"
+    r"serialization|round[-\s]?trip|integration|e2e|"
+    r"end[-\s]to[-\s]end|coverage|negative|edge[-\s]?case|"
+    r"failure[-\s]?path|error[-\s]?path|happy[-\s]?path|smoke|"
+    r"unit|functional"
+    r")"
+)
+
+_TEST_COVERAGE_GAP_PATTERNS: Final[tuple[re.Pattern[str], ...]] = (
+    re.compile(
+        rf"\badd\s+(?:an?\s+)?(?:{_TEST_QUALIFIER}\s+){{0,3}}test\b",
+        re.IGNORECASE,
+    ),
+    re.compile(r"\bmissing\s+(?:a\s+)?test\b", re.IGNORECASE),
+    re.compile(
+        r"\bno\s+test\s+(?:exercises|covers|hits|asserts|guards)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(r"\buntested\b", re.IGNORECASE),
+    re.compile(
+        r"\bnot\s+(?:directly\s+|currently\s+)?(?:exercised|covered|tested)\b",
+        re.IGNORECASE,
+    ),
+)
+
+# Phrases that ESCAPE the coverage-gap downgrade. If a `must` finding
+# matches a coverage pattern AND any of these, we keep `must`: the
+# author has tied the missing test to a real harm (security, data loss,
+# production risk, race), which is the rare case where coverage is
+# actually a blocker.
+_REAL_RISK_TERMS: Final[tuple[re.Pattern[str], ...]] = (
+    re.compile(
+        r"\b(?:security|auth(?:entication|orization)?|credential|secret|"
+        r"token|password|injection|xss|csrf|ssrf|sandbox\s+escape|"
+        r"privilege\s+escalation)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(r"\bdata[-\s]?loss\b", re.IGNORECASE),
+    re.compile(
+        r"\bproduction[-\s]?(?:outage|incident|crash)\b", re.IGNORECASE
+    ),
+    re.compile(
+        r"\brace\s+(?:condition|hazard)|deadlock|livelock\b", re.IGNORECASE
+    ),
+    re.compile(r"\bcorrupt(?:ion|ed?)\b", re.IGNORECASE),
+)
 
 _SEVERITY_LABEL: Final[dict[str, str]] = {
     "must": "Must-fix",
@@ -316,6 +381,78 @@ def _filter_general_comments(
     new_review: JsonObject = dict(review)
     new_review["general_comments"] = kept
     return new_review, dropped
+
+
+def _downgrade_coverage_musts(
+    review: JsonObject,
+) -> tuple[JsonObject, list[JsonObject]]:
+    """Reclassify `must` general comments that are pure test-coverage asks.
+
+    The system prompt is explicit that test-coverage gaps are at most
+    `should`, but the LLM has empirically continued to emit them as
+    `must` (PR #81's `c733b5d` review re-flagged "add a serialization
+    round-trip test" as `must` even after the prompt update). Severity
+    inflation matters because `must` flips the Reviews API ``event`` to
+    ``REQUEST_CHANGES``, which on a branch-protected repo can block
+    merge -- a coverage suggestion should not.
+
+    A finding is downgraded from `must` to `should` when ALL of:
+
+    * `severity == "must"` and `body` is a string.
+    * `body` matches at least one phrase in
+      :data:`_TEST_COVERAGE_GAP_PATTERNS` (an explicit "add a [...] test",
+      "missing test", "no test exercises", "untested", etc.).
+    * `body` does NOT match any pattern in :data:`_REAL_RISK_TERMS`
+      (security, data loss, production outage, race, corruption). When
+      coverage is tied to a real harm, `must` survives.
+
+    Inline comments are NOT downgraded: inline anchors are tied to a
+    specific line, which usually indicates a concrete defect rather
+    than a coverage opinion. Coverage asks naturally fall in
+    `general_comments` (no specific line to anchor to).
+
+    Args:
+        review: The model output, post-grounding-filter.
+
+    Returns:
+        ``(filtered_review, downgraded)`` where ``filtered_review`` is
+        a shallow copy with the offending entries' ``severity`` set to
+        ``"should"`` and a ``_downgraded_from`` audit field added so a
+        future test or operator log can spot the rewrite, and
+        ``downgraded`` is the list of original entries (with
+        ``_downgraded_from``) for ``::warning::`` emission.
+    """
+
+    raw = review.get("general_comments")
+    if not isinstance(raw, list):
+        return review, []
+    new_items: list[JsonValue] = []
+    downgraded: list[JsonObject] = []
+    for entry in raw:
+        if not isinstance(entry, dict):
+            new_items.append(entry)
+            continue
+        if entry.get("severity") != "must":
+            new_items.append(entry)
+            continue
+        body = entry.get("body")
+        if not isinstance(body, str):
+            new_items.append(entry)
+            continue
+        if not any(p.search(body) for p in _TEST_COVERAGE_GAP_PATTERNS):
+            new_items.append(entry)
+            continue
+        if any(p.search(body) for p in _REAL_RISK_TERMS):
+            new_items.append(entry)
+            continue
+        rewritten: JsonObject = dict(entry)
+        rewritten["severity"] = "should"
+        rewritten["_downgraded_from"] = "must"
+        new_items.append(rewritten)
+        downgraded.append(rewritten)
+    new_review: JsonObject = dict(review)
+    new_review["general_comments"] = new_items
+    return new_review, downgraded
 
 
 def _has_must_severity(review: JsonObject, demoted: list[JsonObject]) -> bool:

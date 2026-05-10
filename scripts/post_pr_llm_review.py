@@ -62,6 +62,7 @@ from _pr_review_payload import (  # noqa: E402
     QUOTED_LINE_DISPLAY_LIMIT,
     _build_review_body,
     _decide_event,
+    _downgrade_coverage_musts,
     _filter_general_comments,
     _format_general_section,
     _format_inline_body,
@@ -414,6 +415,13 @@ def _process_pr(
         reason = d.get("_drop_reason", "unknown")
         snippet = str(d.get("body", ""))[:160].replace("\n", " ")
         print(f"::warning::Bot self-check dropped general comment ({reason}): {snippet}")
+    review, downgraded_general = _downgrade_coverage_musts(review)
+    for d in downgraded_general:
+        snippet = str(d.get("body", ""))[:160].replace("\n", " ")
+        print(
+            f"::warning::Bot self-check downgraded must -> should "
+            f"(test-coverage gap): {snippet}"
+        )
     raw_inline = review.get("inline_comments")
     inline_list: list[JsonValue] = (
         list(raw_inline) if isinstance(raw_inline, list) else []
@@ -439,7 +447,8 @@ def _process_pr(
     return (
         f"posted {event.lower()} review for {head_sha[:7]} "
         f"(inline={len(valid_inline)}, demoted={len(demoted)}, "
-        f"dropped_general={len(dropped_general)})"
+        f"dropped_general={len(dropped_general)}, "
+        f"downgraded_general={len(downgraded_general)})"
     )
 
 

@@ -304,58 +304,63 @@ want to"; say "do X".
 thorough. If you have nothing grounded to say, return empty arrays \
 and verdict `comment`.
 
-Severity = must (blocks merge; requires diff evidence)
-- New `Any`, untyped param/return, broad `except`, silent fallback, or \
-`# type: ignore` without an inline justification, on a definition line \
-present in the diff.
-- Public function/class/module ADDED or MODIFIED in this diff without a \
-Google-style docstring. The `def`/`class` line and the lines immediately \
-following it must both be in the diff before you make this claim; do not \
-infer "no docstring" from a missing-context window.
-- Magic literal added in this diff without a named constant or rationale \
-comment, on a line present in the diff.
-- Concurrency hazard introduced by this diff: shared mutable state, \
-async without cancellation, missing locks/guards, race in tests.
-- Branch ADDED in this diff that no test in this diff exercises. The \
-"branch" must be visible (an `if`/`elif`/`for`/`try`/`raise`/etc. on a \
-line in the diff); do not flag missing coverage of FUTURE code paths or \
-HYPOTHETICAL extensions.
-- Backwards-compat shim with no justification AND no acknowledgement in \
-the PR description. If the PR body explains why a fallback is there, it \
-is at most `should` (you may disagree, but not as a blocker).
-- Behavior change not called out in the PR (rename, signature change, \
-exception type change, JSON schema drift) where the renamed/changed \
-symbol's def/usage line is in the diff.
-- Anything that risks data loss, security regression, or a production \
-outage, with the offending line in the diff.
+Severity policy -- read this BEFORE classifying anything
 
-Severity inflation guards (these are NOT `must`)
-- "Add a completeness/forward-coverage test for warning codes / enum \
-values / config fields that don't exist yet." -> `should`. Forward \
-coverage of hypothetical future inputs is good practice but never \
-blocks merge.
-- "Reject unmapped X at runtime instead of silently ignoring it" when \
-the PR description explicitly calls out the silent-ignore as the chosen \
-design. -> `should`, framed as "consider X if you change your mind"; \
-the author has already weighed the trade-off.
-- "Add a test that asserts the public schema/model still has field Y" \
-when the diff already shows an explicit field-typed declaration -> \
-`should` (schema drift is caught at type-check / Pydantic level).
-- "Document this in README / DESIGN.md" when the README/DESIGN.md is \
-not in the diff -> `nit` or drop. You cannot judge what the docs say \
-from a diff that doesn't include them.
-- "This file is over N lines" / "split this module" when the file is \
-not in the diff in its entirety. You cannot measure whole-file \
-properties from a partial view. Drop the claim.
+`must` is reserved for things that actually block merge. The list is \
+short and exhaustive: if your finding is not on this list, it is at \
+most `should`, no matter how strongly you feel about it. The runtime \
+will downgrade common over-classifications (test-coverage gaps, \
+documentation asks, schema-drift assertions) on its own; preempt that \
+by classifying correctly here.
+
+Severity = must (the entire list)
+1. Concurrency hazard introduced by this diff -- shared mutable state, \
+async without cancellation, a missing lock/guard around a write, a \
+race in a test.
+2. Behavior change not called out in the PR description: rename, \
+signature change, exception-type change, JSON schema field rename or \
+removal. The renamed/changed symbol's def or usage line must be in the \
+diff.
+3. Concrete data-loss, security, or production-outage risk on a line \
+present in the diff. "Concrete" means: you can point at the diff line \
+and describe a specific input that triggers the harm. "There is no \
+test, therefore something might break" is NOT concrete.
+4. The diff itself adds a failing or empty assertion, an `assert True`, \
+or a test that asserts on its own input. (Test fraud, not test gap.)
+
+Everything else is `should` or `nit`. In particular, the following are \
+NEVER `must`, even if the project's documented standard says they are:
+
+- Missing Google-style docstring on a new public function/class/module.
+- Missing type annotation, new `Any`, broad `except`, or \
+`# type: ignore` without justification.
+- Magic literal without a named constant.
+- Test coverage gap of any kind, including:
+  * "Add a test for the new branch / new field / new code path."
+  * "Add a regression / serialization / round-trip / completeness / \
+forward-compatibility test."
+  * "The new field is not exercised through `model_dump()`."
+  * "Missing failure-path / error-path / edge-case test."
+  These are coverage asks, not defects. Classify as `should`. The \
+runtime will downgrade `must` coverage asks automatically if you \
+ignore this rule, and a `::warning::` will be emitted naming you.
+- DRY/SOLID violation, naming that hides intent, structural code-smell.
+- Backwards-compat shim, dead branch, unreachable code (unless the \
+unreachability is itself a security/correctness bug).
+- Whole-file properties (file length, package layout, module-split \
+opinions) -- drop entirely if the full file is not in the diff.
+- Asks about README / DESIGN.md / CHANGELOG when those files are not \
+in the diff -- drop entirely.
+- Disagreement with a design choice the PR description explicitly \
+justifies. State your disagreement at `should` or drop it.
 
 Severity = should
 - DRY/SOLID violation the diff actually introduces.
 - Naming that hides intent.
+- Missing docstring / type annotation / named constant on diff lines.
+- Test coverage gaps (see list above).
+- Disagreement with a documented design choice.
 - Test that passes for the wrong reason.
-- Forward-compatibility / completeness coverage requests (see guards \
-above).
-- Disagreement with a design choice the PR description explicitly \
-justifies.
 
 Severity = nit
 - Pure style, no behavior change. Be sparing.

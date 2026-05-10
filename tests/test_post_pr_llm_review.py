@@ -1086,6 +1086,263 @@ def test_filter_general_does_not_mutate_caller_review() -> None:
 
 
 # ---------------------------------------------------------------------------
+# _downgrade_coverage_musts -- severity inflation guard
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        # PR #81 c733b5d review verbatim phrasing.
+        "Add a test that builds a FAIL-producing input, calls analyze(), "
+        "and asserts the dumped suggested_labels still includes the fail "
+        "verdict label.",
+        # PR #81 9e5af80 review verbatim phrasing.
+        "Add a completeness test that asserts the full supported "
+        "warning-code set is represented in suggested_labels.",
+        # Other canonical coverage-gap framings.
+        "Missing test for the new branch.",
+        "No test exercises the new code path.",
+        "The new field is untested.",
+        "Add a regression test for this.",
+        "Add a serialization test for the FAIL path.",
+        "Add a round-trip test for `model_dump()`.",
+        "The new branch is not directly exercised by any test.",
+        "Add an edge-case test.",
+        "Add a failure-path test.",
+    ],
+)
+def test_downgrade_coverage_musts_rewrites_known_coverage_phrasings(
+    body: str,
+) -> None:
+    """Each canonical "you should add a test" phrasing is downgraded.
+
+    These are the exact patterns observed across PR #81's review runs
+    (and the broader LLM-PR-bot literature). Holding them in a
+    parametrize block rather than free-form text means a future model
+    rev that emits "an end-to-end coverage test, please" gets a
+    one-line addition here, not a refactor.
+    """
+
+    review: ppr.JsonObject = {
+        "verdict": "request_changes",
+        "summary": "x",
+        "inline_comments": [],
+        "general_comments": [
+            {"severity": "must", "body": body, "evidence": "x" * 20}
+        ],
+    }
+    out, downgraded = ppr._downgrade_coverage_musts(review)
+    assert len(downgraded) == 1
+    items = out["general_comments"]
+    assert isinstance(items, list)
+    assert items[0]["severity"] == "should"
+    assert items[0]["_downgraded_from"] == "must"
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        # Genuine security-tied coverage gap stays `must`.
+        "Add a test for the new auth bypass; without it the regression "
+        "is not detected.",
+        "No test exercises the credential-stripping branch -- a security "
+        "regression here would slip through.",
+        "Untested branch could cause data loss on shutdown.",
+        "Add a test for the production-outage path.",
+        "No test guards against the race condition introduced here.",
+        "Add a test or this corruption path stays unverified.",
+    ],
+)
+def test_downgrade_coverage_musts_preserves_real_risk_musts(body: str) -> None:
+    """Coverage asks tied to a concrete harm (security/data-loss/race/
+    production) are NOT downgraded.
+
+    The risk-term escape hatch is the difference between "you forgot a
+    test" (style) and "you forgot a test for the auth bypass" (real
+    blocker). Locking each escape phrase in a parametrize so future
+    edits to the term list cannot silently regress them.
+    """
+
+    review: ppr.JsonObject = {
+        "verdict": "request_changes",
+        "summary": "x",
+        "inline_comments": [],
+        "general_comments": [
+            {"severity": "must", "body": body, "evidence": "x" * 20}
+        ],
+    }
+    out, downgraded = ppr._downgrade_coverage_musts(review)
+    assert downgraded == []
+    items = out["general_comments"]
+    assert isinstance(items, list)
+    assert items[0]["severity"] == "must"
+    assert "_downgraded_from" not in items[0]
+
+
+def test_downgrade_coverage_musts_leaves_non_coverage_musts_alone() -> None:
+    """A `must` body that doesn't match any coverage pattern is preserved.
+
+    Negative case for the regex: if the model legitimately emits a
+    blocking finding (e.g. "removes public function `analyze` without a
+    deprecation note"), we must not downgrade it just because the body
+    happens to contain the substring "test". The patterns are anchored
+    on coverage-ask phrasings, not bare mentions of "test".
+    """
+
+    review: ppr.JsonObject = {
+        "verdict": "request_changes",
+        "summary": "x",
+        "inline_comments": [],
+        "general_comments": [
+            {
+                "severity": "must",
+                "body": "Public function `analyze` removed without a "
+                "deprecation note in CHANGELOG; downstream callers will "
+                "break on import.",
+                "evidence": "x" * 20,
+            }
+        ],
+    }
+    out, downgraded = ppr._downgrade_coverage_musts(review)
+    assert downgraded == []
+    items = out["general_comments"]
+    assert isinstance(items, list)
+    assert items[0]["severity"] == "must"
+
+
+def test_downgrade_coverage_musts_does_not_touch_should_or_nit() -> None:
+    """Only `must` is rewritten. `should` / `nit` stay where the model put
+    them, because raising severity has different audit implications and
+    isn't the failure mode we're guarding against here."""
+
+    review: ppr.JsonObject = {
+        "verdict": "comment",
+        "summary": "x",
+        "inline_comments": [],
+        "general_comments": [
+            {"severity": "should", "body": "Add a test.", "evidence": "x" * 20},
+            {"severity": "nit", "body": "Missing test for x.", "evidence": "x" * 20},
+        ],
+    }
+    out, downgraded = ppr._downgrade_coverage_musts(review)
+    assert downgraded == []
+    items = out["general_comments"]
+    assert isinstance(items, list)
+    severities = [i["severity"] for i in items]
+    assert severities == ["should", "nit"]
+
+
+def test_downgrade_coverage_musts_skips_inline_comments() -> None:
+    """Inline comments target a specific line, so they typically describe
+    a defect rather than a coverage opinion. The downgrade is scoped to
+    `general_comments` only; this test pins that scope."""
+
+    review: ppr.JsonObject = {
+        "verdict": "request_changes",
+        "summary": "x",
+        "inline_comments": [
+            {
+                "path": "foo.py",
+                "line": 10,
+                "severity": "must",
+                "body": "Add a test for this branch.",
+                "quoted_line": "+    if x:",
+            }
+        ],
+        "general_comments": [],
+    }
+    out, downgraded = ppr._downgrade_coverage_musts(review)
+    assert downgraded == []
+    inlines = out["inline_comments"]
+    assert isinstance(inlines, list)
+    assert inlines[0]["severity"] == "must"
+
+
+def test_downgrade_coverage_musts_returns_input_unchanged_when_no_general() -> None:
+    review: ppr.JsonObject = {
+        "verdict": "comment",
+        "summary": "x",
+        "inline_comments": [],
+    }
+    out, downgraded = ppr._downgrade_coverage_musts(review)
+    assert downgraded == []
+    assert out is review or out.get("general_comments") is None
+
+
+def test_process_pr_downgrades_coverage_must_and_emits_warning(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Regression for the PR #81 c733b5d review: the bot emits a
+    coverage-ask `must` even after grounding succeeds. The runtime
+    must downgrade it, surface a `::warning::`, downgrade the verdict
+    `event` to `COMMENT`, and not block merge.
+    """
+
+    head_sha = "c0c0a000" + "0" * 32
+    diff_text = (
+        "diff --git a/foo.py b/foo.py\n"
+        "--- a/foo.py\n"
+        "+++ b/foo.py\n"
+        "@@ -1,1 +1,2 @@\n"
+        " line_one\n"
+        "+    return 42  # magic\n"
+    )
+
+    posted: dict[str, ppr.JsonObject] = {}
+
+    def fake_http_json(
+        method: str,
+        url: str,
+        token: str,
+        *,
+        accept: str = "application/vnd.github+json",
+        body: ppr.JsonObject | None = None,
+    ) -> ppr.JsonValue:
+        if method == "GET":
+            return {"head": {"sha": head_sha, "repo": {"full_name": "o/r"}}}
+        assert body is not None
+        posted["payload"] = body
+        return {}
+
+    monkeypatch.setattr(ppr, "_http_json", fake_http_json)
+    monkeypatch.setattr(ppr, "_http_text", lambda *a, **kw: diff_text)
+    monkeypatch.setattr(ppr, "_list_issue_comments", lambda *a, **kw: [])
+    monkeypatch.setattr(ppr, "_list_pr_reviews", lambda *a, **kw: [])
+    monkeypatch.setattr(
+        ppr,
+        "call_openai_review",
+        lambda *a, **kw: {
+            "verdict": "request_changes",
+            "summary": "Found something.",
+            "inline_comments": [],
+            "general_comments": [
+                {
+                    "severity": "must",
+                    "body": (
+                        "Add a serialization round-trip test that calls "
+                        "model_dump() on the FAIL path."
+                    ),
+                    "evidence": "return 42  # magic",
+                }
+            ],
+        },
+    )
+    monkeypatch.setenv("OPENAI_API_KEY", "stub")
+
+    result = ppr._process_pr("o", "r", "o/r", 81, "tok")
+
+    assert "downgraded_general=1" in result
+    payload = posted["payload"]
+    assert payload["event"] == "COMMENT"  # downgraded -> not blocking
+    body_str = str(payload["body"])
+    assert "Should-fix" in body_str
+    assert "Must-fix" not in body_str
+    out = capsys.readouterr().out
+    assert "downgraded must -> should" in out
+
+
+# ---------------------------------------------------------------------------
 # _maybe_truncate / _truncation_notice -- diff-window transparency
 # ---------------------------------------------------------------------------
 

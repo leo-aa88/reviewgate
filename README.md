@@ -1,8 +1,8 @@
-# ReviewGate
+# reviewgate-core
 
-ReviewGate checks whether a GitHub pull request is **reviewable** before humans spend time on it.
+This repository **is** **reviewgate-core**: the open-source, deterministic reviewability engine for ReviewGate, which checks whether a pull request is **reviewable** before humans spend time on it.
 
-Architecture and scope live in [`docs/DESIGN.md`](docs/DESIGN.md). The open-source deterministic engine lives under `reviewgate/core/` (see §15 in that document).
+Product context, boundaries, and the full stack live in [`docs/DESIGN.md`](docs/DESIGN.md). The Python implementation of the engine is under `reviewgate/core/` (§15). The GitHub Action and hosted app are separate codebases described in that document.
 
 ## Development
 

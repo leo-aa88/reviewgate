@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "reviewgate"
 version = "0.0.0"
-description = "ReviewGate: deterministic PR reviewability engine and hosted GitHub App."
+description = "reviewgate-core: deterministic PR reviewability engine for ReviewGate (open-source package; see docs/DESIGN.md)."
 readme = "README.md"
 requires-python = ">=3.12"
 authors = [{ name = "ReviewGate contributors" }]

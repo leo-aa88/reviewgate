@@ -105,36 +105,62 @@ def test_yaml_null_document_returns_all_defaults() -> None:
     assert result.config == ReviewGateConfig()
 
 
-def test_default_config_matches_design_doc_constants() -> None:
-    cfg = ReviewGateConfig()
+def test_default_config_top_level_matches_design_doc() -> None:
+    """Top-level §12 fields default to the spec's documented values."""
 
+    cfg = ReviewGateConfig()
     assert cfg.version == 1
     assert cfg.mode == "app"
     assert cfg.llm_reports is False
 
-    assert cfg.thresholds.warn.files_changed == 25
-    assert cfg.thresholds.warn.human_loc_changed == 800
-    assert cfg.thresholds.warn.risky_files_changed == 1
-    assert cfg.thresholds.warn.dependency_files_changed == 1
-    assert cfg.thresholds.warn.config_files_changed == 1
 
-    assert cfg.thresholds.fail.files_changed == 75
-    assert cfg.thresholds.fail.human_loc_changed == 2500
-    assert cfg.thresholds.fail.risky_files_without_context == 1
+def test_default_warn_thresholds_match_design_doc_section_10_3() -> None:
+    """Warn thresholds default to the §10.3 documented values."""
 
-    assert cfg.policy.require_linked_issue is True
-    assert cfg.policy.require_human_summary is True
-    assert cfg.policy.fail_on_risky_paths_without_context is True
-    assert cfg.policy.fail_on_huge_pr is True
-    assert cfg.policy.warn_blocks_merge is False
+    warn = ReviewGateConfig().thresholds.warn
+    assert warn.files_changed == 25
+    assert warn.human_loc_changed == 800
+    assert warn.risky_files_changed == 1
+    assert warn.dependency_files_changed == 1
+    assert warn.config_files_changed == 1
 
+
+def test_default_fail_thresholds_match_design_doc_section_10_3() -> None:
+    """Fail thresholds default to the §10.3 documented values."""
+
+    fail = ReviewGateConfig().thresholds.fail
+    assert fail.files_changed == 75
+    assert fail.human_loc_changed == 2500
+    assert fail.risky_files_without_context == 1
+
+
+def test_default_policy_matches_design_doc_section_12() -> None:
+    """Policy toggles default per §12 / §10.10."""
+
+    policy = ReviewGateConfig().policy
+    assert policy.require_linked_issue is True
+    assert policy.require_human_summary is True
+    assert policy.fail_on_risky_paths_without_context is True
+    assert policy.fail_on_huge_pr is True
+    assert policy.warn_blocks_merge is False
+
+
+def test_default_path_lists_match_design_doc() -> None:
+    """`risky_paths` defaults to the §10.6 list and `ignored_paths` is empty."""
+
+    cfg = ReviewGateConfig()
     assert tuple(cfg.risky_paths) == DEFAULT_RISKY_PATHS
     assert cfg.ignored_paths == []
 
-    assert cfg.status_check.enabled is True
-    assert cfg.status_check.name == DEFAULT_STATUS_CHECK_NAME
-    assert cfg.status_check.fail_on == "FAIL"
-    assert cfg.status_check.warn_blocks_merge is False
+
+def test_default_status_check_matches_design_doc_section_13_10() -> None:
+    """Status-check defaults follow §13.10 (`reviewgate/reviewability`, fail_on FAIL)."""
+
+    status = ReviewGateConfig().status_check
+    assert status.enabled is True
+    assert status.name == DEFAULT_STATUS_CHECK_NAME
+    assert status.fail_on == "FAIL"
+    assert status.warn_blocks_merge is False
 
 
 def test_design_doc_example_yaml_parses_cleanly() -> None:
@@ -311,21 +337,27 @@ def test_top_level_scalar_falls_back_to_defaults_with_warning() -> None:
     assert "mapping" in warning.evidence["error"]
 
 
-def test_load_config_never_raises_on_arbitrary_user_input() -> None:
-    """Defensive sweep: §12 guarantees the loader does not crash analysis."""
+@pytest.mark.parametrize(
+    "yaml_text",
+    [
+        pytest.param("::::", id="lexer-error"),
+        pytest.param("%YAML 9.99\n---\n", id="unsupported-directive"),
+        pytest.param("version: 1\nrisky_paths: not-a-list\n", id="risky-paths-wrong-type"),
+        pytest.param("thresholds: 5\n", id="thresholds-wrong-type"),
+        pytest.param("labels: not-a-mapping\n", id="labels-wrong-type"),
+    ],
+)
+def test_load_config_never_raises_on_arbitrary_user_input(yaml_text: str) -> None:
+    """Defensive sweep: §12 guarantees the loader does not crash analysis.
 
-    samples: list[str] = [
-        "::::",
-        "%YAML 9.99\n---\n",
-        "version: 1\nrisky_paths: not-a-list\n",
-        "thresholds: 5\n",
-        "labels: not-a-mapping\n",
-    ]
-    for sample in samples:
-        result = load_config(sample)
-        assert isinstance(result, ConfigLoadResult)
-        assert result.config == ReviewGateConfig()
-        assert len(result.warnings) == 1
+    Parametrized so a regression on any single recovery path produces a
+    targeted failure message instead of a generic "the loop failed".
+    """
+
+    result = load_config(yaml_text)
+    assert isinstance(result, ConfigLoadResult)
+    assert result.config == ReviewGateConfig()
+    assert len(result.warnings) == 1
 
 
 def test_source_path_overridden_in_warning_message() -> None:

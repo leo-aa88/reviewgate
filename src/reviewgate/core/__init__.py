@@ -30,6 +30,7 @@ from .linked_issue import find_issue_references, linked_issue_warning
 from .mixed_concern import mixed_concern_warning
 from .paths import PathMatcher, match_any
 from .pr_body import weak_body_warning
+from .report import suggested_labels
 from .risky_paths import risky_paths_warning
 from .size import SizeStats, compute_size_stats, size_warnings
 from .schemas import (
@@ -90,5 +91,6 @@ __all__ = [
     "schemas",
     "size",
     "size_warnings",
+    "suggested_labels",
     "weak_body_warning",
 ]

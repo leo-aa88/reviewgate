@@ -93,6 +93,39 @@ def _json_body(payload: Any) -> bytes:
     return json.dumps(payload).encode("utf-8")
 
 
+def _decode_request_body(request: urllib.request.Request) -> dict[str, Any]:
+    """Return the JSON body posted by ``request`` as a dict.
+
+    ``urllib.request.Request.data`` is typed as ``bytes | IO[bytes] |
+    str | None``; the upsert flow always passes ``bytes``. Asserting
+    the runtime type narrows the union for callers without an ignore.
+    """
+
+    data = request.data
+    assert isinstance(data, bytes), (
+        f"expected request body to be bytes, got {type(data).__name__}"
+    )
+    decoded = json.loads(data.decode("utf-8"))
+    assert isinstance(decoded, dict)
+    return decoded
+
+
+def _http_error(url: str, code: int, reason: str) -> urllib.error.HTTPError:
+    """Construct an ``HTTPError`` with the documented hdrs argument.
+
+    ``HTTPError.__init__`` is typed as ``hdrs: HTTPMessage`` even
+    though ``None`` works at runtime; an empty :class:`email.message.Message`
+    keeps the test on the strict typing side without changing
+    behaviour.
+    """
+
+    from email.message import Message
+
+    return urllib.error.HTTPError(
+        url, code, reason, hdrs=Message(), fp=io.BytesIO(b"{}")
+    )
+
+
 def _make_report():
     pass_input = {
         "pr": {
@@ -314,7 +347,7 @@ def test_upsert_comment_creates_when_marker_absent() -> None:
     )
     assert action == "created"
     assert comment_id == 4242
-    posted = json.loads(opener.requests[1].data.decode("utf-8"))  # type: ignore[union-attr]
+    posted = _decode_request_body(opener.requests[1])
     assert posted["body"].startswith(post_comment.MARKER)
 
 
@@ -349,7 +382,7 @@ def test_upsert_comment_patches_when_marker_found() -> None:
     )
     assert action == "updated"
     assert comment_id == 555
-    patched = json.loads(opener.requests[1].data.decode("utf-8"))  # type: ignore[union-attr]
+    patched = _decode_request_body(opener.requests[1])
     assert patched["body"].startswith(post_comment.MARKER)
 
 
@@ -360,12 +393,10 @@ def test_upsert_comment_translates_http_error_to_runtime_error() -> None:
             (
                 "GET",
                 "/issues/14/comments",
-                urllib.error.HTTPError(
+                _http_error(
                     "https://api.github.com/repos/o/r/issues/14/comments",
                     403,
                     "Forbidden",
-                    hdrs=None,  # type: ignore[arg-type]
-                    fp=io.BytesIO(b"{}"),
                 ),
                 {},
             )

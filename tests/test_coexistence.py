@@ -9,6 +9,8 @@ double-post.
 
 from __future__ import annotations
 
+from typing import Final
+
 import pytest
 
 from reviewgate_action.coexistence import (
@@ -16,6 +18,12 @@ from reviewgate_action.coexistence import (
     ConfigMode,
     decide,
 )
+
+_ACTION_MODES: Final[tuple[ActionMode, ...]] = ("auto", "action", "quiet")
+"""Every value the §14 ``mode`` input accepts; pinned for the matrix tests."""
+
+_CONFIG_MODES: Final[tuple[ConfigMode, ...]] = ("app", "action", "both")
+"""Every value the §12 ``mode`` field accepts; pinned for the matrix tests."""
 
 
 @pytest.mark.parametrize("config_mode", ["app", "action", "both"])
@@ -125,13 +133,20 @@ def test_auto_with_post_comment_false_skips_posting(
 
 
 def test_decision_rationale_is_actionable_single_line() -> None:
-    """Every rationale string must be a single line for log readability."""
+    """Every rationale string must be a single line for log readability.
 
-    for action_mode in ("auto", "action", "quiet"):
-        for config_mode in ("app", "action", "both"):
+    Iterating over the typed ``_ACTION_MODES`` / ``_CONFIG_MODES``
+    tuples (rather than bare string literals) keeps ``decide``'s
+    Literal contract enforced by mypy at the call site, so an enum
+    drift would surface as a type error instead of slipping past
+    the matrix test.
+    """
+
+    for action_mode in _ACTION_MODES:
+        for config_mode in _CONFIG_MODES:
             decision = decide(
-                action_mode=action_mode,  # type: ignore[arg-type]
-                config_mode=config_mode,  # type: ignore[arg-type]
+                action_mode=action_mode,
+                config_mode=config_mode,
                 post_comment_input=True,
             )
             assert "\n" not in decision.rationale, (
@@ -155,8 +170,8 @@ def test_action_mode_is_a_strict_subset_of_config_mode_enum() -> None:
     config enum, both of which would break §14.1's rules.
     """
 
-    action_modes: set[ActionMode] = {"auto", "action", "quiet"}
-    config_modes: set[ConfigMode] = {"app", "action", "both"}
+    action_modes: set[str] = set(_ACTION_MODES)
+    config_modes: set[str] = set(_CONFIG_MODES)
     assert "app" not in action_modes
     assert "auto" not in config_modes
     assert "quiet" not in config_modes

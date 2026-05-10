@@ -305,6 +305,9 @@ def test_absolute_config_file_overrides_workspace(
 # --- fail-on policy --------------------------------------------------
 
 
+from reviewgate.core.schemas import Reviewability
+
+
 @pytest.mark.parametrize(
     ("fail_on", "verdict", "expected"),
     [
@@ -323,9 +326,9 @@ def test_absolute_config_file_overrides_workspace(
     ],
 )
 def test_exit_code_for_fail_on_implements_design_doc_ladder(
-    fail_on: str, verdict: str, expected: int
+    fail_on: str, verdict: Reviewability, expected: int
 ) -> None:
-    assert run_core.exit_code_for_fail_on(fail_on, verdict) == expected  # type: ignore[arg-type]
+    assert run_core.exit_code_for_fail_on(fail_on, verdict) == expected
 
 
 def test_exit_code_for_fail_on_rejects_unknown_value() -> None:

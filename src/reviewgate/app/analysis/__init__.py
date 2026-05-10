@@ -10,8 +10,16 @@ from reviewgate.app.analysis.cache import (
     analysis_cache_key,
     worker_job_lock_key,
 )
+from reviewgate.app.analysis.pr_file_tiers import (
+    HUGE_PR_FAIL_FAST_MESSAGE,
+    PrFileTierClassification,
+    classify_changed_file_count,
+)
 
 __all__ = [
+    "HUGE_PR_FAIL_FAST_MESSAGE",
+    "PrFileTierClassification",
     "analysis_cache_key",
+    "classify_changed_file_count",
     "worker_job_lock_key",
 ]

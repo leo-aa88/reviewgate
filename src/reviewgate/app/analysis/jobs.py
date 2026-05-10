@@ -66,7 +66,9 @@ def run_pr_analysis_stub(payload: dict[str, object]) -> None:
             ``reviewgate_pull_number``, ``reviewgate_head_sha``,
             ``reviewgate_config_hash``, and ``reviewgate_pr_metadata_hash`` keys
             are present, the stub persists ``analyses`` lifecycle rows per issue
-            #46 (``running`` then ``completed`` with reviewability ``PASS``).
+            #46 (``running`` then ``completed`` with reviewability ``PASS``), except
+            when another worker already holds ``running`` (``already_running``) or
+            the row is ``already_completed``.
     """
 
     settings = AppSettings()
@@ -96,7 +98,7 @@ def run_pr_analysis_stub(payload: dict[str, object]) -> None:
 
         if natural is not None:
             analysis_id, begin_kind = begin_analysis_for_job_start(session, natural)
-            if begin_kind != "already_completed":
+            if begin_kind not in ("already_completed", "already_running"):
                 mark_analysis_completed(
                     session,
                     analysis_id,

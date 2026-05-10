@@ -13,6 +13,7 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Final, Literal, NamedTuple
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 
 from reviewgate.app.storage.models import Analysis
 
@@ -98,6 +99,28 @@ def parse_analysis_job_natural_key(
     )
 
 
+def _classify_existing_analysis_row(
+    session: "Session",
+    row: Analysis,
+) -> tuple[uuid.UUID, BeginAnalysisKind]:
+    """Return disposition for a row that already exists under the natural key."""
+
+    if row.status == ANALYSIS_STATUS_COMPLETED:
+        return row.id, "already_completed"
+    if row.status == ANALYSIS_STATUS_RUNNING:
+        return row.id, "already_running"
+    if row.status == ANALYSIS_STATUS_FAILED:
+        row.status = ANALYSIS_STATUS_RUNNING
+        row.completed_at = None
+        row.error_code = None
+        row.reviewability = None
+        session.flush()
+        return row.id, "resumed_from_failed"
+
+    msg = f"unexpected analyses.status value: {row.status!r}"
+    raise ValueError(msg)
+
+
 def begin_analysis_for_job_start(
     session: "Session",
     key: AnalysisNaturalKey,
@@ -108,7 +131,8 @@ def begin_analysis_for_job_start(
     exists, returns ``already_completed`` so callers can skip duplicate work
     (§13.7 enqueue dedupe). ``failed`` rows reset to ``running`` for retries.
     Concurrent ``running`` rows return ``already_running`` for a second worker
-    that lost the race.
+    that lost the race. If two workers race on insert, :exc:`~sqlalchemy.exc.IntegrityError`
+    is caught and the winner row is classified the same way as a pre-existing row.
 
     Args:
         session: Open SQLAlchemy session (caller commits).
@@ -138,23 +162,18 @@ def begin_analysis_for_job_start(
             created_at=datetime.now(tz=UTC),
         )
         session.add(created)
-        session.flush()
+        try:
+            session.flush()
+        except IntegrityError:
+            session.rollback()
+            winner = session.execute(stmt).scalar_one_or_none()
+            if winner is None:
+                msg = "analyses row missing after unique constraint violation"
+                raise RuntimeError(msg) from None
+            return _classify_existing_analysis_row(session, winner)
         return created.id, "created"
 
-    if row.status == ANALYSIS_STATUS_COMPLETED:
-        return row.id, "already_completed"
-    if row.status == ANALYSIS_STATUS_RUNNING:
-        return row.id, "already_running"
-    if row.status == ANALYSIS_STATUS_FAILED:
-        row.status = ANALYSIS_STATUS_RUNNING
-        row.completed_at = None
-        row.error_code = None
-        row.reviewability = None
-        session.flush()
-        return row.id, "resumed_from_failed"
-
-    msg = f"unexpected analyses.status value: {row.status!r}"
-    raise ValueError(msg)
+    return _classify_existing_analysis_row(session, row)
 
 
 def mark_analysis_completed(

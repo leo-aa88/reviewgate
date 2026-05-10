@@ -187,7 +187,7 @@ def test_begin_analysis_resumes_failed(repo_session: Session) -> None:
 
 
 def test_begin_analysis_second_running_worker(repo_session: Session) -> None:
-    """Concurrent ``running`` rows surface as ``already_running``."""
+    """A second session observes ``already_running`` without re-inserting."""
 
     _inst, repo_id = _seed_installation_and_repository(repo_session)
     key = AnalysisNaturalKey(
@@ -197,13 +197,24 @@ def test_begin_analysis_second_running_worker(repo_session: Session) -> None:
         config_hash="c",
         pr_metadata_hash="m",
     )
-    aid, k1 = begin_analysis_for_job_start(repo_session, key)
-    assert k1 == "created"
-    repo_session.commit()
+    bind = repo_session.get_bind()
+    factory = sessionmaker(bind=bind, autoflush=False, expire_on_commit=False)
 
-    aid2, k2 = begin_analysis_for_job_start(repo_session, key)
-    assert aid2 == aid
-    assert k2 == "already_running"
+    first = factory()
+    try:
+        aid, k1 = begin_analysis_for_job_start(first, key)
+        assert k1 == "created"
+        first.commit()
+    finally:
+        first.close()
+
+    second = factory()
+    try:
+        aid2, k2 = begin_analysis_for_job_start(second, key)
+        assert aid2 == aid
+        assert k2 == "already_running"
+    finally:
+        second.close()
 
 
 _UNIQUE_VIOLATION: Final[str] = (

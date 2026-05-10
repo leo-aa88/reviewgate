@@ -60,7 +60,75 @@ DEFAULT_RISKY_PATHS: Final[tuple[str, ...]] = (
 
 DEFAULT_IGNORED_PATHS: Final[tuple[str, ...]] = ()
 """No ignored paths by default; the §10.8 generated/snapshot/vendored sets are
-applied by the categorizer (issue #8) regardless of this user-facing list."""
+applied by the categorizer regardless of this user-facing list."""
+
+# §10.7 dependency / lockfile patterns. Engine internals: applied by the
+# categorizer (#9) for human-LOC exclusion and dependency-edit warnings;
+# not exposed as `.reviewgate.yml` keys in the §12 schema.
+DEFAULT_DEPENDENCY_FILES: Final[tuple[str, ...]] = (
+    "package.json",
+    "requirements.txt",
+    "pyproject.toml",
+    "poetry.lock",
+    "go.mod",
+    "Cargo.toml",
+)
+"""Dependency-manifest patterns from §10.7."""
+
+DEFAULT_LOCKFILES: Final[tuple[str, ...]] = (
+    "package-lock.json",
+    "pnpm-lock.yaml",
+    "yarn.lock",
+    "poetry.lock",
+    "uv.lock",
+    "go.sum",
+    "Cargo.lock",
+)
+"""Lockfile patterns from §10.7."""
+
+# §10.8 generated / vendored / minified / snapshot patterns. Engine
+# internals: subtracted from human-authored LOC per §10.4 and used by the
+# categorizer (#9) for the matching `FileCategory` labels.
+DEFAULT_GENERATED_PATHS: Final[tuple[str, ...]] = (
+    "**/generated/**",
+    "**/gen/**",
+    "**/*.pb.go",
+    "**/*.generated.*",
+    "**/openapi.generated.*",
+)
+"""Generated-file patterns from §10.8."""
+
+DEFAULT_VENDORED_PATHS: Final[tuple[str, ...]] = (
+    "vendor/**",
+    "third_party/**",
+    "node_modules/**",
+)
+"""Vendored-dependency patterns from §10.8."""
+
+DEFAULT_MINIFIED_PATHS: Final[tuple[str, ...]] = (
+    "**/*.min.js",
+    "**/*.min.css",
+)
+"""Minified-asset patterns from §10.8."""
+
+DEFAULT_SNAPSHOT_PATHS: Final[tuple[str, ...]] = (
+    "**/__snapshots__/**",
+    "**/*.snap",
+)
+"""Snapshot-fixture patterns from §10.8."""
+
+# §10.9 test-path patterns. Used by the categorizer (#9) for the `test`
+# `FileCategory` and as input to mixed-concern heuristics (#14).
+DEFAULT_TEST_PATHS: Final[tuple[str, ...]] = (
+    "**/test/**",
+    "**/tests/**",
+    "**/__tests__/**",
+    "*.test.*",
+    "*.spec.*",
+    "test_*.py",
+    "*_test.go",
+)
+"""Test-path patterns from §10.9."""
 
 DEFAULT_STATUS_CHECK_NAME: Final[str] = "reviewgate/reviewability"
 """Default Checks API name (§13.10); stable unless the repo overrides it."""
@@ -345,9 +413,16 @@ __all__ = [
     "ConfigMode",
     "ConfigVersion",
     "DEFAULT_CONFIG_PATH",
+    "DEFAULT_DEPENDENCY_FILES",
+    "DEFAULT_GENERATED_PATHS",
     "DEFAULT_IGNORED_PATHS",
+    "DEFAULT_LOCKFILES",
+    "DEFAULT_MINIFIED_PATHS",
     "DEFAULT_RISKY_PATHS",
+    "DEFAULT_SNAPSHOT_PATHS",
     "DEFAULT_STATUS_CHECK_NAME",
+    "DEFAULT_TEST_PATHS",
+    "DEFAULT_VENDORED_PATHS",
     "FailThresholds",
     "Labels",
     "Policy",

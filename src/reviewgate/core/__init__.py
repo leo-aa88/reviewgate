@@ -12,6 +12,7 @@ from . import (
     schemas,
 )
 from .aggregate import baseline_reviewability
+from .categorizer import Categorizer, categorize_changed_files
 from .config import (
     ConfigLoadResult,
     ConfigMode,
@@ -51,10 +52,12 @@ __all__ = [
     "SplitHint",
     "StatusFailOn",
     "WarningSeverity",
+    "Categorizer",
     "PathMatcher",
     "aggregate",
     "analyze",
     "baseline_reviewability",
+    "categorize_changed_files",
     "categorizer",
     "cli",
     "config",

@@ -35,7 +35,7 @@ import re
 import sys
 import urllib.error
 import urllib.request
-from typing import Any, Final
+from typing import Any, Final, NamedTuple
 
 from reviewgate.core.schemas import ReviewabilityReport
 
@@ -295,6 +295,27 @@ def _resolve_repo_and_pull(
     return owner, repo, _pull_number_from_event(event_path)
 
 
+class UpsertOutcome(NamedTuple):
+    """Result of :func:`upsert_from_environment`.
+
+    Attributes:
+        ok: ``True`` iff a comment was successfully created or
+            updated. ``False`` for every failure path the helper
+            handles (missing token, repo / pull-number resolution
+            failure, GitHub API HTTPError, malformed JSON response,
+            etc.).
+        action: ``"created"``, ``"updated"``, ``"skipped"`` (no
+            credentials to attempt the call), or ``"failed"``
+            (credentials present but the call did not succeed).
+        message: Single-line human-readable description suitable for
+            ``::error::`` / ``::notice::`` annotations.
+    """
+
+    ok: bool
+    action: str
+    message: str
+
+
 def upsert_from_environment(
     *,
     report: ReviewabilityReport,
@@ -302,29 +323,43 @@ def upsert_from_environment(
     repo_arg: str | None,
     pull_arg: int | None,
     log_prefix: str,
-) -> None:
+) -> UpsertOutcome:
     """Run the §13 upsert with env-var fallbacks; never raises.
 
-    Failures here (missing token, GitHub API errors, malformed event
-    payloads) are non-fatal: the engine result already drove the
-    workflow exit code via ``fail-on``. This helper logs each
-    failure mode on stderr so an operator can debug the missing
-    permission or wrong token, but always returns ``None`` so the
-    caller can keep its exit-code logic simple.
+    Comment-posting is auxiliary: the engine result already drove
+    the workflow exit code via ``fail-on``, and a posting failure
+    must not silently flip a FAIL verdict to a passing run or vice
+    versa. This helper therefore swallows every documented failure
+    mode (missing token, GitHub API HTTPError, malformed event
+    payload) but reports them via ``::error::`` annotations on
+    stderr so a workflow operator sees the misconfiguration in the
+    PR check summary instead of the failure being silently skipped.
+    The structured :class:`UpsertOutcome` lets a caller surface the
+    result in a step output or a follow-on step.
+
+    Returns:
+        :class:`UpsertOutcome` whose ``ok`` flag is ``False`` on
+        every failure path. Callers that care about a hard failure
+        (e.g. a workflow that wants the upsert to be mandatory) can
+        check ``ok`` and exit non-zero on their own; the helper
+        itself never changes the process exit code.
     """
 
     token = os.environ.get("GITHUB_TOKEN", "")
     if not token:
-        sys.stderr.write(
-            f"{log_prefix}: GITHUB_TOKEN not set; skipping comment upsert\n"
+        msg = (
+            "GITHUB_TOKEN not set; skipping ReviewGate comment upsert "
+            "(grant `pull-requests: write` to enable posting)"
         )
-        return
+        sys.stderr.write(f"::error::{log_prefix}: {msg}\n")
+        return UpsertOutcome(False, "skipped", msg)
 
     try:
         owner, repo, pull_number = _resolve_repo_and_pull(repo_arg, pull_arg)
     except RuntimeError as exc:
-        sys.stderr.write(f"{log_prefix}: cannot post comment: {exc}\n")
-        return
+        msg = f"cannot resolve PR coordinates for comment upsert: {exc}"
+        sys.stderr.write(f"::error::{log_prefix}: {msg}\n")
+        return UpsertOutcome(False, "failed", msg)
 
     try:
         action, comment_id = upsert_comment(
@@ -336,17 +371,24 @@ def upsert_from_environment(
             summary_md=summary_md,
         )
     except RuntimeError as exc:
-        sys.stderr.write(f"{log_prefix}: comment upsert failed: {exc}\n")
-        return
+        msg = (
+            f"comment upsert against {owner}/{repo}#{pull_number} "
+            f"failed: {exc} (token likely lacks `pull-requests: write`)"
+        )
+        sys.stderr.write(f"::error::{log_prefix}: {msg}\n")
+        return UpsertOutcome(False, "failed", msg)
 
-    sys.stderr.write(
-        f"{log_prefix}: {action} ReviewGate comment id={comment_id} on "
-        f"{owner}/{repo}#{pull_number}\n"
+    msg = (
+        f"{action} ReviewGate comment id={comment_id} on "
+        f"{owner}/{repo}#{pull_number}"
     )
+    sys.stderr.write(f"::notice::{log_prefix}: {msg}\n")
+    return UpsertOutcome(True, action, msg)
 
 
 __all__ = [
     "MARKER",
+    "UpsertOutcome",
     "find_existing_comment_id",
     "render_comment_body",
     "upsert_comment",

@@ -557,7 +557,9 @@ def test_action_mode_invokes_upsert_with_resolved_repo(
     """`--mode action` triggers the upsert with CLI-provided repo + PR.
 
     Pins that ``--repo`` and ``--pull-number`` are honoured when the
-    GitHub Action env vars are absent (e.g. local invocations).
+    GitHub Action env vars are absent (e.g. local invocations) and
+    that a successful upsert is logged with a ``::notice::``
+    annotation so the workflow log surfaces the success cleanly.
     """
 
     from reviewgate_action import post_comment as pc
@@ -594,6 +596,7 @@ def test_action_mode_invokes_upsert_with_resolved_repo(
     assert captured_kwargs["pull_number"] == 42
     assert captured_kwargs["token"] == "ghp_test"
     err = capsys.readouterr().err
+    assert "::notice::" in err
     assert "created ReviewGate comment id=1234" in err
 
 
@@ -641,7 +644,10 @@ def test_action_mode_swallows_upsert_failure_without_breaking_run(
     The §14 acceptance is that the workflow exit code reflects the
     review verdict. A `403 Resource not accessible` from the
     Issues API (e.g. a token without `pull-requests: write`) must
-    log the failure but keep the run on its `fail-on` exit code.
+    log the failure as ``::error::`` (so it is highly visible in
+    the PR check summary) but keep the run on its `fail-on` exit
+    code so the comment-posting auxiliary path cannot silently flip
+    a passing verdict to failing or vice versa.
     """
 
     from reviewgate_action import post_comment as pc
@@ -670,8 +676,46 @@ def test_action_mode_swallows_upsert_failure_without_breaking_run(
     )
     assert code == 1
     err = capsys.readouterr().err
-    assert "comment upsert failed" in err
+    assert "::error::" in err
+    assert "comment upsert against o/r#1 failed" in err
     assert "HTTP 403 Forbidden" in err
+    assert "pull-requests: write" in err
+
+
+def test_action_mode_logs_skipped_upsert_when_token_missing(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Missing ``GITHUB_TOKEN`` must surface as ``::error::``.
+
+    A workflow that opted into `mode: action` but forgot to wire
+    `secrets.GITHUB_TOKEN` would previously skip the upsert
+    silently. The ``::error::`` annotation makes the
+    misconfiguration visible in the PR check summary so the
+    operator can grant the missing permission.
+    """
+
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+    payload_path = _write(_PASS_INPUT, tmp_path / "engine.json")
+    code = run_core.main(
+        [
+            "--input",
+            str(payload_path),
+            "--workspace",
+            str(tmp_path),
+            "--mode",
+            "action",
+            "--repo",
+            "o/r",
+            "--pull-number",
+            "1",
+        ]
+    )
+    assert code == 0
+    err = capsys.readouterr().err
+    assert "::error::" in err
+    assert "GITHUB_TOKEN not set" in err
 
 
 def test_render_summary_includes_warning_code_and_severity() -> None:

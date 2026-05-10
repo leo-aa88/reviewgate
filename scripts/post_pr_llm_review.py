@@ -13,7 +13,16 @@ import ssl
 import sys
 import urllib.error
 import urllib.request
-from typing import Any, Final
+from typing import Final, TypeAlias
+
+# Closed type for any value that survives a `json.loads` round-trip. We avoid
+# `typing.Any` because the project rule requires every `Any` to be justified;
+# JSON I/O is exactly the place where the precise shape is unknown but the set
+# of possible values is closed, so `JsonValue` carries that intent in the type.
+JsonValue: TypeAlias = (
+    "None | bool | int | float | str | list[JsonValue] | dict[str, JsonValue]"
+)
+JsonObject: TypeAlias = "dict[str, JsonValue]"
 
 MARKER_PREFIX: Final[str] = "<!-- reviewgate-ai-review:sha="
 MARKER_SUFFIX: Final[str] = " -->"
@@ -40,8 +49,8 @@ def _http_json(
     token: str,
     *,
     accept: str = "application/vnd.github+json",
-    body: dict[str, Any] | None = None,
-) -> Any:
+    body: JsonObject | None = None,
+) -> JsonValue:
     data = None if body is None else json.dumps(body).encode()
     req = urllib.request.Request(url, data=data, method=method)
     for k, v in _github_headers(token, accept=accept).items():
@@ -82,8 +91,8 @@ def _http_text(method: str, url: str, token: str, *, accept: str) -> str:
         ) from exc
 
 
-def _list_open_pulls(owner: str, repo: str, token: str) -> list[dict[str, Any]]:
-    out: list[dict[str, Any]] = []
+def _list_open_pulls(owner: str, repo: str, token: str) -> list[JsonObject]:
+    out: list[JsonObject] = []
     page = 1
     while True:
         url = (
@@ -102,14 +111,19 @@ def _list_open_pulls(owner: str, repo: str, token: str) -> list[dict[str, Any]]:
     return out
 
 
-def _fork_pr(repository: str, item: dict[str, Any]) -> bool:
-    head_repo = (item.get("head") or {}).get("repo") or {}
-    full = head_repo.get("full_name")
+def _fork_pr(repository: str, item: JsonObject) -> bool:
+    head_value = item.get("head")
+    head: JsonObject = head_value if isinstance(head_value, dict) else {}
+    repo_value = head.get("repo")
+    repo: JsonObject = repo_value if isinstance(repo_value, dict) else {}
+    full = repo.get("full_name")
     return isinstance(full, str) and full != repository
 
 
-def _list_issue_comments(owner: str, repo: str, issue_number: int, token: str) -> list[dict[str, Any]]:
-    out: list[dict[str, Any]] = []
+def _list_issue_comments(
+    owner: str, repo: str, issue_number: int, token: str
+) -> list[JsonObject]:
+    out: list[JsonObject] = []
     page = 1
     while True:
         url = (
@@ -119,14 +133,16 @@ def _list_issue_comments(owner: str, repo: str, issue_number: int, token: str) -
         chunk = _http_json("GET", url, token)
         if not isinstance(chunk, list) or not chunk:
             break
-        out.extend(chunk)
+        for row in chunk:
+            if isinstance(row, dict):
+                out.append(row)
         if len(chunk) < 100:
             break
         page += 1
     return out
 
 
-def _already_reviewed(comments: list[dict[str, Any]], head_sha: str) -> bool:
+def _already_reviewed(comments: list[JsonObject], head_sha: str) -> bool:
     needle = _marker(head_sha)
     for c in comments:
         body = c.get("body")
@@ -211,7 +227,8 @@ def _process_pr(owner: str, repo: str, repository: str, pr_number: int, token: s
     if _fork_pr(repository, item):
         return "skip: fork PR"
 
-    head = item.get("head") or {}
+    head_value = item.get("head")
+    head: JsonObject = head_value if isinstance(head_value, dict) else {}
     head_sha = head.get("sha")
     if not isinstance(head_sha, str) or len(head_sha) < 7:
         return "skip: missing head.sha"
@@ -237,14 +254,16 @@ def _event_pull_request() -> tuple[str, str, str, int] | None:
     if not path or not os.path.isfile(path):
         return None
     with open(path, encoding="utf-8") as f:
-        event = json.load(f)
-    pr = event.get("pull_request")
-    repo = event.get("repository") or {}
-    full = repo.get("full_name")
-    if not isinstance(pr, dict) or not isinstance(full, str) or "/" not in full:
+        loaded: JsonValue = json.load(f)
+    if not isinstance(loaded, dict):
         return None
-    num = pr.get("number")
-    if not isinstance(num, int):
+    pr_value = loaded.get("pull_request")
+    repo_value = loaded.get("repository")
+    if not isinstance(pr_value, dict) or not isinstance(repo_value, dict):
+        return None
+    full = repo_value.get("full_name")
+    num = pr_value.get("number")
+    if not isinstance(full, str) or "/" not in full or not isinstance(num, int):
         return None
     owner, name = full.split("/", 1)
     return owner, name, full, num

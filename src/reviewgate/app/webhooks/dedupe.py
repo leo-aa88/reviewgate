@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from typing import Literal
 
-from sqlalchemy.exc import IntegrityError, OperationalError
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.exc import OperationalError
 
 from reviewgate.app.settings import AppSettings
 from reviewgate.app.storage.db import create_engine_from_settings, create_session_factory
@@ -19,7 +20,7 @@ def claim_github_webhook_delivery(
     delivery_id: str,
     event_name: str,
 ) -> ClaimResult:
-    """Insert a delivery row or detect an existing one (unique ``github_delivery_id``).
+    """Atomically claim a delivery id using ``INSERT ... ON CONFLICT DO NOTHING``.
 
     Args:
         settings: Application settings (``REVIEWGATE_DATABASE_URL``).
@@ -48,18 +49,20 @@ def claim_github_webhook_delivery(
 
     session_factory = create_session_factory(engine)
     with session_factory() as session:
-        session.add(
-            WebhookDelivery(
+        insert_stmt = (
+            pg_insert(WebhookDelivery)
+            .values(
                 github_delivery_id=delivery_id,
                 event_name=event_name,
-            ),
+                processed=False,
+            )
+            .on_conflict_do_nothing(index_elements=["github_delivery_id"])
+            .returning(WebhookDelivery.id)
         )
         try:
+            inserted_id = session.execute(insert_stmt).scalar_one_or_none()
             session.commit()
-        except IntegrityError:
-            session.rollback()
-            return "duplicate"
         except OperationalError:
             session.rollback()
             return "database_unavailable"
-        return "claimed"
+        return "claimed" if inserted_id is not None else "duplicate"

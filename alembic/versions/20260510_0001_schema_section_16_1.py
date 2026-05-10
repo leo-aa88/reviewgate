@@ -4,11 +4,10 @@ Creates ``installations``, ``repositories``, ``analyses``, ``analysis_reports``,
 ``beta_leads``, and ``webhook_deliveries`` with the composite unique key and
 indexes specified in the design document.
 
-Primary-key defaults use ``gen_random_uuid()``. The migration enables
-``pgcrypto`` with ``CREATE EXTENSION IF NOT EXISTS`` so the same revision stays
-executable on PostgreSQL clusters where that function is only available through
-the extension (older versions / stripped images), while remaining a no-op when
-the function is already built-in (PostgreSQL 13+).
+Primary-key defaults use PostgreSQL's ``gen_random_uuid()``, which is built into
+the server core starting with **PostgreSQL 13** (no ``CREATE EXTENSION`` or
+superuser privileges required). CI exercises this revision against
+PostgreSQL 16; operators should run PostgreSQL 13 or newer for this revision.
 
 Revision ID: 16_1_0001
 Revises:
@@ -42,13 +41,8 @@ down_revision: Final[str | None] = None
 branch_labels: Final[None] = None
 depends_on: Final[None] = None
 
-_EXTENSION_PGCRYPTO: Final[str] = "pgcrypto"
-
-
 def upgrade() -> None:
     """Create §16.1 tables, constraints, and indexes."""
-
-    op.execute(sa.text(f'CREATE EXTENSION IF NOT EXISTS "{_EXTENSION_PGCRYPTO}"'))
 
     op.create_table(
         TABLE_INSTALLATIONS,

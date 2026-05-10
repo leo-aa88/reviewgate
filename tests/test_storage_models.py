@@ -8,8 +8,6 @@ indexes). They require optional ``app`` dependencies (installed via
 
 from __future__ import annotations
 
-import subprocess
-import sys
 from pathlib import Path
 from typing import Final
 
@@ -17,11 +15,17 @@ import pytest
 from sqlalchemy.schema import UniqueConstraint
 
 pytest.importorskip("sqlalchemy")
+pytest.importorskip("alembic")
+
+from alembic.config import Config
+from alembic.script import ScriptDirectory
 
 from reviewgate.app.storage import models
 from reviewgate.app.storage.models import Base
 
 _REPO_ROOT: Final[Path] = Path(__file__).resolve().parent.parent
+_ALEMBIC_INI: Final[Path] = _REPO_ROOT / "alembic.ini"
+_EXPECTED_ALEMBIC_HEAD: Final[str] = "16_1_0001"
 
 _EXPECTED_TABLES: Final[frozenset[str]] = frozenset(
     {
@@ -92,13 +96,12 @@ def test_installation_and_repository_numeric_ids_unique() -> None:
 
 
 def test_alembic_head_revision_is_registered() -> None:
-    """The initial migration revision is discoverable via the Alembic CLI."""
+    """The initial migration revision is registered in the Alembic script graph."""
 
-    proc = subprocess.run(
-        [sys.executable, "-m", "alembic", "heads"],
-        cwd=_REPO_ROOT,
-        check=True,
-        capture_output=True,
-        text=True,
+    assert _ALEMBIC_INI.is_file(), f"missing Alembic config: {_ALEMBIC_INI}"
+    cfg = Config(str(_ALEMBIC_INI))
+    script = ScriptDirectory.from_config(cfg)
+    heads = script.get_heads()
+    assert _EXPECTED_ALEMBIC_HEAD in heads, (
+        f"expected Alembic head {_EXPECTED_ALEMBIC_HEAD!r} in {heads!r}"
     )
-    assert "16_1_0001" in proc.stdout

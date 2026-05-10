@@ -61,14 +61,15 @@ jobs:
           cache: pip
           cache-dependency-path: pyproject.toml
 
-      - name: Install package with app extras
-        run: pip install -e ".[app]"
+      - name: Install package, tests, and app persistence extras
+        run: pip install -e ".[dev,app]"
 
-      - name: Run Alembic upgrade then downgrade
+      - name: Migrate, verify ORM parity, then roll back
         env:
           REVIEWGATE_DATABASE_URL: postgresql+psycopg://reviewgate:reviewgate@127.0.0.1:5432/reviewgate
         run: |
           alembic upgrade head
+          pytest -q tests/test_storage_schema_parity.py
           alembic downgrade base
 
   build:

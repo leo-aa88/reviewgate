@@ -2,7 +2,17 @@
 
 GitHub Action wrapper around [`reviewgate-core`](../) that runs the deterministic reviewability engine on a pull request and (optionally) posts the §13 summary comment. See `docs/DESIGN.md` §14 for the full design.
 
-> **Status: scaffold (issue #23). Do not pin as a required status check yet.** The composite step validates inputs and then **exits non-zero** with `::error::` so a workflow that names this Action as a required check cannot silently report success while the review pipeline is missing. PR fetch (#24), core invocation + `fail-on` (#25), and mode coexistence + comment (#26) are the follow-on issues. The input contract below is final; only the runtime is missing.
+> **Status: scaffold (issue #23). Do not pin as a required status check yet.** The composite step validates inputs and then **exits non-zero** with `::error::` so a workflow that names this Action as a required check cannot silently report success while the review pipeline is missing. The fetch step (`reviewgate_action.fetch_pr`) landed with #24; core invocation + `fail-on` (#25) and mode coexistence + comment (#26) are the remaining follow-on issues. The input contract below is final; only the runtime wiring is missing.
+
+## Implementation status
+
+| Step | Module | Issue | Lands |
+| ---- | ------ | ----- | ----- |
+| Fetch PR metadata + paginated files | [`reviewgate_action.fetch_pr`](src/reviewgate_action/fetch_pr.py) | #24 | done |
+| Load `.reviewgate.yml`, run core, apply `fail-on` | (TBD) | #25 | pending |
+| Mode coexistence + PR comment upsert | (TBD) | #26 | pending |
+
+`reviewgate_action.fetch_pr` is invokable today as `python -m reviewgate_action.fetch_pr --output engine_input.json`. It reads `GITHUB_TOKEN`, `GITHUB_REPOSITORY`, and `GITHUB_EVENT_PATH` from the environment (all set automatically by GitHub Actions for `pull_request` events) and emits a §10.1 `EngineInput` JSON document validated against the deterministic engine's schema.
 
 ## Usage
 
@@ -35,7 +45,7 @@ When this monorepo is split per `docs/DESIGN.md` §14 ("Repository: `github.com/
 
 | Name | Required | Default | Description |
 | ---- | -------- | ------- | ----------- |
-| `github-token` | yes | — | Token used to fetch PR metadata and (when `post-comment: true`) post the summary comment. Needs `pull-requests: read` at minimum; `pull-requests: write` is required for `post-comment: true`. |
+| `github-token` | yes | — | Token used to fetch PR metadata and (when `post-comment: true`) post the summary comment. Needs `pull-requests: read` and `contents: read` (`reviewgate_action.fetch_pr` calls `GET /repos/{owner}/{repo}/pulls/{n}` and the paginated `/files` endpoint); `pull-requests: write` is additionally required for `post-comment: true`. |
 | `fail-on` | no | `FAIL` | Verdict at or above which the workflow exits non-zero. One of `PASS`, `WARN`, `FAIL`, `never`. |
 | `post-comment` | no | `"true"` | Whether to upsert the §13 ReviewGate marker comment on the PR. |
 | `mode` | no | `auto` | Coexistence with the hosted ReviewGate App (§14.1). One of `auto`, `action`, `quiet`. `auto` defers to `.reviewgate.yml`. |

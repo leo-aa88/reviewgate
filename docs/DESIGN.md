@@ -25,13 +25,16 @@ The product has three layers:
 
 3. **Hosted ReviewGate App**
 
-   * Commercial GitHub App.
+   * GitHub App that runs the same deterministic core (open-source
+     codebase under Apache 2.0; optional paid hosting is an operations
+     layer, not a license wall).
    * Runs automatically on PR open/update.
    * Posts reviewability comments.
    * Applies labels.
    * Sets status checks.
    * Supports `.reviewgate.yml`.
-   * Adds hosted LLM reports, org policy management, audit logs, and paid enforcement.
+   * Adds hosted LLM reports, org policy management, audit logs, and
+     paid enforcement features where product economics warrant them.
 
 The public PR URL analyzer is useful, but it is not the main MVP. It is a later marketing artifact and acquisition tool.
 
@@ -1822,15 +1825,15 @@ Contains:
 * examples
 * docs
 
-## 19.2 Commercial repository
+## 19.2 Hosted service code (open source)
 
-Private repo for hosted service:
-
-* GitHub App backend
-* hosted LLM layer
-* billing later
-* org policy UI later
-* audit logs later
+The GitHub App backend, queueing, persistence, hosted LLM integration,
+billing hooks, org policy UI, and audit logging are **part of the same
+open-source product** as `reviewgate-core` and `reviewgate-action`.
+They may ship in this monorepo or in a sibling repository under the
+same GitHub org for deployment and release cadence, but they are **not**
+a proprietary fork. Remaining MVP implementation is tracked in public
+GitHub issues (from issue #28 onward in `leo-aa88/reviewgate`).
 
 ## 19.3 Why open-source core
 
@@ -1838,20 +1841,28 @@ Reasons:
 
 * senior engineers trust inspectable rule engines
 * community can improve patterns
-* avoids being cloned by someone who open-sources first
+* transparent roadmap and code build trust with adopters
 * creates adoption path through GitHub Action
-* hosted App monetizes convenience and enforcement
+* hosted offerings can still monetize convenience, SLAs, and scale
+  without hiding the implementation
 
-## 19.4 What stays commercial
+## 19.4 Commercial differentiation (not closed source)
 
-* hosted GitHub App
-* no-maintenance setup
-* LLM-generated reports
-* org-level policy management
-* audit logs
-* hosted history
+Revenue, where used, comes from **hosted operation**, support, and
+productized convenience — not from withholding source. Typical paid
+value adds include:
+
+* managed GitHub App hosting and onboarding
+* no-maintenance setup for large orgs
+* LLM-generated reports backed by ReviewGate-operated keys and quotas
+* org-level policy management at scale
+* audit logs and retention guarantees
+* hosted history and analytics
 * enterprise support
-* SSO/self-hosted options later
+* SSO / VPC / self-hosted support packages later
+
+All of the above can ship as Apache 2.0 (or the same license as this
+repo) while billing for the service layer.
 
 ---
 

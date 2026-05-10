@@ -54,7 +54,8 @@ a forbidden package into the runtime `dependencies`.
 
 The fix is almost always to **move the offending dependency to the
 GitHub Action layer (`src/reviewgate_action/`) or the hosted App
-(`reviewgate-app`)**, where I/O is allowed. Expanding the allow-list
+service layer** (open-source roadmap; see `docs/DESIGN.md` §19),
+where I/O is allowed. Expanding the allow-list
 should be the last resort and requires updating the §4.1 contract first.
 
 If you genuinely need a stdlib network module for an *internal* purpose

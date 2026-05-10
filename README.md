@@ -17,16 +17,21 @@ review code correctness, security, or merge safety — that's a
 deliberate, narrow scope. See [`docs/DESIGN.md`](docs/DESIGN.md) for
 the full design and product thesis.
 
-This repository is the **open-source** layer:
+This repository is the **open-source** home for ReviewGate under
+Apache 2.0:
 
 * [`reviewgate-core`](src/reviewgate/core/) — the deterministic
   reviewability engine (`reviewgate.core`, pure Python, no I/O).
 * [`src/reviewgate_action/`](src/reviewgate_action/) — the GitHub Action
   wrapper that runs the engine on every PR.
 
-The hosted ReviewGate App and the LLM-augmented report layer live in
-a separate, private repository per
-[`docs/DESIGN.md` §19.2 and §19.4](docs/DESIGN.md).
+The **hosted GitHub App**, **LLM-augmented report layer**, and **public
+PR URL analyzer** are part of the same MVP and the same license. They
+are tracked openly on the [issue tracker](https://github.com/leo-aa88/reviewgate/issues)
+(from [issue #28](https://github.com/leo-aa88/reviewgate/issues/28)
+onward); implementation may land in this monorepo or in sibling
+repositories under the same org for packaging and deployment only, not
+as a proprietary split. See [`docs/DESIGN.md` §19](docs/DESIGN.md).
 
 ---
 
@@ -419,9 +424,12 @@ reviewgate/
   #24, #25, #26 landed). Fetches PR metadata, loads `.reviewgate.yml`,
   runs the engine, applies the §14 `fail-on` policy, and (when §14.1
   coexistence allows) upserts the §13 PR comment.
-* **Hosted ReviewGate App:** out of scope for this repo by design
-  (§19.2 — proprietary). It is the commercial deployment target and
-  lives in a separate, private codebase.
+* **Hosted ReviewGate App:** not shipped in this tree yet, but **in
+  scope as open source** (same Apache 2.0). Work is tracked on GitHub
+  from [issue #28](https://github.com/leo-aa88/reviewgate/issues/28)
+  onward; paid ReviewGate Cloud (if offered) is a **hosting and
+  operations** layer on top of that code, not a closed-source fork.
+  See [`docs/DESIGN.md` §19](docs/DESIGN.md).
 * **Public release:** this repository is being prepared for public
   open-source release under Apache 2.0. Until the first signed
   release tag, treat the public API as stable but additive.
@@ -430,8 +438,8 @@ reviewgate/
 
 ## Roadmap
 
-The MVP scope for this repository (the open-source layer) is complete.
-Near-term priorities:
+The MVP scope for **core + Action** in this repository is complete.
+Near-term priorities for this tree:
 
 * First public release (`v0.1.0`) on PyPI and GitHub Releases.
 * `pre-commit` hook configuration so the engine can run locally on
@@ -442,9 +450,12 @@ Near-term priorities:
   formatting-only churn detection, dependency-update + behavior-change
   separation per §10.11 examples).
 
-The hosted App, hosted LLM layer, and public PR URL analyzer (§4.4)
-are explicitly **not** on this repo's roadmap; they live in a
-separate proprietary codebase per [`docs/DESIGN.md` §19](docs/DESIGN.md).
+Remaining MVP items — **hosted GitHub App**, **hosted LLM layer**, and
+**public PR URL analyzer** (see [`docs/DESIGN.md` §4.4](docs/DESIGN.md)
+and [§28 Future Public PR Analyzer](docs/DESIGN.md)) — are **open-source
+roadmap** work, tracked in GitHub issues from
+[#28](https://github.com/leo-aa88/reviewgate/issues/28) onward per
+[`docs/DESIGN.md` §19](docs/DESIGN.md).
 
 ---
 

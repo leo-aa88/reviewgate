@@ -121,14 +121,19 @@ outputs:
       §10.13 verdict from the deterministic engine. One of `PASS`,
       `WARN`, or `FAIL`. Empty string when the run failed before the
       engine produced a report (e.g. invalid input, missing token).
+      Consumers branching on the verdict should compare against the
+      three literals; equality against an empty string cleanly
+      misses each.
     value: ${{ steps.run.outputs.reviewability }}
 
   report-json:
     description: >-
       §10.2 ReviewabilityReport as a single-line JSON document.
-      Consumers can parse it with `${{ fromJSON(steps.x.outputs.report-json) }}`
-      to drive downstream steps. Empty string when the run failed
-      before the engine produced a report.
+      Consumers parse it with `${{ fromJSON(steps.x.outputs.report-json) }}`
+      to drive downstream steps. Always valid JSON: when the run
+      failed before the engine produced a report, this falls back to
+      `{}` so `fromJSON()` never crashes the consumer's workflow
+      expression.
     value: ${{ steps.run.outputs.report-json }}
 
 runs:
@@ -196,23 +201,37 @@ runs:
         report_json="$(mktemp -t reviewgate-report.XXXXXX.json)"
         trap 'rm -f "${engine_input}" "${report_json}"' EXIT
 
-        python -m reviewgate_action.fetch_pr --output "${engine_input}"
-
+        # Run the fetch + run_core pipeline under `set +e` so a
+        # non-zero pipeline exit (e.g. `fail-on` triggered, or a
+        # fetch-time HTTP error) still falls through to the output
+        # block below. We always have to publish *some* value for
+        # `report-json` because consumers commonly write
+        # `${{ fromJSON(steps.x.outputs.report-json) }}` in workflow
+        # expressions; an empty string would crash that expression
+        # at evaluation time. The fallback below emits an empty
+        # JSON object instead so `fromJSON` always succeeds, and
+        # consumers branch on `reviewability` (which is empty when
+        # no engine run happened).
         set +e
-        python -m reviewgate_action.run_core \
-          --input "${engine_input}" \
-          --workspace "${workdir}" \
-          --fail-on "${REVIEWGATE_FAIL_ON}" \
-          --output-json "${report_json}" \
-          > /dev/null
-        run_core_exit=$?
+        python -m reviewgate_action.fetch_pr --output "${engine_input}"
+        fetch_exit=$?
+        if [ "${fetch_exit}" -eq 0 ]; then
+          python -m reviewgate_action.run_core \
+            --input "${engine_input}" \
+            --workspace "${workdir}" \
+            --fail-on "${REVIEWGATE_FAIL_ON}" \
+            --output-json "${report_json}" \
+            > /dev/null
+          pipeline_exit=$?
+        else
+          pipeline_exit=${fetch_exit}
+        fi
         set -e
 
         # Surface the §10.13 verdict and the full §10.2 report as
-        # step outputs so downstream steps can branch on them. The
-        # report goes in compact form because GitHub's
-        # `GITHUB_OUTPUT` does not handle multi-line JSON cleanly
-        # without explicit heredoc handling, and downstream
+        # step outputs. The report goes in compact form because
+        # GitHub's `GITHUB_OUTPUT` does not handle multi-line JSON
+        # cleanly without explicit heredoc handling, and downstream
         # `fromJSON` parses single-line JSON without issue.
         if [ -s "${report_json}" ]; then
           reviewability="$(python -c 'import json,sys; print(json.load(open(sys.argv[1]))["reviewability"])' "${report_json}")"
@@ -222,10 +241,15 @@ runs:
             echo "report-json=${report_oneline}"
           } >> "${GITHUB_OUTPUT}"
         else
+          # Engine never produced a report (fetch failed, run_core
+          # exited 2, etc.). `reviewability` stays empty so equality
+          # checks against `PASS` / `WARN` / `FAIL` cleanly miss;
+          # `report-json` falls back to `{}` so `fromJSON()` keeps
+          # working in consumer expressions.
           {
             echo "reviewability="
-            echo "report-json="
+            echo "report-json={}"
           } >> "${GITHUB_OUTPUT}"
         fi
 
-        exit "${run_core_exit}"
+        exit "${pipeline_exit}"

@@ -445,6 +445,28 @@ def test_run_step_validation_rejects_invalid_inputs(
     )
 
 
+def test_run_step_falls_back_to_empty_json_object_for_report(
+    action_metadata: dict[str, Any],
+) -> None:
+    """The `report-json` output must always be valid JSON.
+
+    Consumers commonly write
+    ``${{ fromJSON(steps.x.outputs.report-json) }}`` in workflow
+    expressions; an empty-string fallback would crash that
+    expression at evaluation time. The run step must therefore
+    write at least ``{}`` on every failure path so ``fromJSON``
+    keeps working. This test asserts the bash body still publishes
+    the documented fallback.
+    """
+
+    body = _run_step_body()
+    assert "report-json={}" in body, (
+        "run step must fall back to `report-json={}` (empty JSON object) "
+        "when the engine never produced a report; an empty string would "
+        "crash `fromJSON()` for consumers reading the output"
+    )
+
+
 def test_action_readme_documents_every_input_and_output() -> None:
     """The per-action README must list every input and the §14 outputs."""
 

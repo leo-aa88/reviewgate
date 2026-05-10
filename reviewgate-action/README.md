@@ -68,8 +68,8 @@ When this monorepo is split per `docs/DESIGN.md` §14 ("Repository: `github.com/
 
 | Name | Description |
 | ---- | ----------- |
-| `reviewability` | The §10.13 baseline verdict (`PASS` / `WARN` / `FAIL`). Empty when the run failed before the engine produced a report (invalid input, missing token, etc.). |
-| `report-json` | The full §10.2 report as a single-line JSON string. Empty when the run failed before the engine produced a report. Consumers parse with `${{ fromJSON(steps.x.outputs.report-json) }}` to drive downstream steps. |
+| `reviewability` | The §10.13 baseline verdict (`PASS` / `WARN` / `FAIL`). Empty when the run failed before the engine produced a report (invalid input, missing token, etc.). Equality checks against the three literal values cleanly miss the empty case. |
+| `report-json` | The full §10.2 report as a single-line JSON string. **Always valid JSON.** When the run failed before the engine produced a report this falls back to `{}` so `${{ fromJSON(steps.x.outputs.report-json) }}` never crashes the consumer's workflow expression; downstream steps that need the verdict should branch on `reviewability` first. |
 
 ## Coexistence with the hosted App (§14.1)
 

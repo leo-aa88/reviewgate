@@ -10,16 +10,30 @@ from reviewgate.app.analysis.cache import (
     analysis_cache_key,
     worker_job_lock_key,
 )
+from reviewgate.app.analysis.config_hash import (
+    compute_config_hash_from_yaml,
+    fetch_reviewgate_yml_and_config_hash,
+)
 from reviewgate.app.analysis.pr_file_tiers import (
     HUGE_PR_FAIL_FAST_MESSAGE,
     PrFileTierClassification,
     classify_changed_file_count,
+)
+from reviewgate.app.analysis.pr_metadata_hash import (
+    build_pr_metadata_hash_payload,
+    compute_pr_metadata_hash,
+    normalize_text_for_pr_metadata_hash,
 )
 
 __all__ = [
     "HUGE_PR_FAIL_FAST_MESSAGE",
     "PrFileTierClassification",
     "analysis_cache_key",
+    "build_pr_metadata_hash_payload",
     "classify_changed_file_count",
+    "compute_config_hash_from_yaml",
+    "compute_pr_metadata_hash",
+    "fetch_reviewgate_yml_and_config_hash",
+    "normalize_text_for_pr_metadata_hash",
     "worker_job_lock_key",
 ]

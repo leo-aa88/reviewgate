@@ -17,6 +17,7 @@ from reviewgate.app.github.client import (
     GitHubRestError,
     fetch_pull_request,
     fetch_pull_request_files,
+    fetch_repository_text_file_contents,
 )
 
 __all__ = [
@@ -26,5 +27,6 @@ __all__ = [
     "fetch_installation_access_token",
     "fetch_pull_request",
     "fetch_pull_request_files",
+    "fetch_repository_text_file_contents",
     "mint_github_app_jwt",
 ]

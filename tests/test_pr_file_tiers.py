@@ -14,10 +14,14 @@ from reviewgate.app.analysis.pr_file_tiers import (
     ("count", "tier", "skip_llm", "message"),
     [
         (0, "full", False, None),
+        (299, "full", False, None),
         (300, "full", False, None),
         (301, "summary_only", False, None),
+        (302, "summary_only", False, None),
+        (999, "summary_only", False, None),
         (1000, "summary_only", False, None),
         (1001, "fail_fast", True, HUGE_PR_FAIL_FAST_MESSAGE),
+        (1002, "fail_fast", True, HUGE_PR_FAIL_FAST_MESSAGE),
     ],
 )
 def test_classify_changed_file_count_tiers(

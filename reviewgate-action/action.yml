@@ -220,6 +220,8 @@ runs:
             --input "${engine_input}" \
             --workspace "${workdir}" \
             --fail-on "${REVIEWGATE_FAIL_ON}" \
+            --mode "${REVIEWGATE_MODE}" \
+            --post-comment "${REVIEWGATE_POST_COMMENT}" \
             --output-json "${report_json}" \
             > /dev/null
           pipeline_exit=$?

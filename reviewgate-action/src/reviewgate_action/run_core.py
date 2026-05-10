@@ -41,7 +41,7 @@ from typing import Any, Final
 
 from pydantic import ValidationError
 
-from reviewgate.core.config import load_config
+from reviewgate.core.config import ConfigMode, load_config
 from reviewgate.core.engine import analyze
 from reviewgate.core.schemas import (
     EngineInput,
@@ -49,6 +49,7 @@ from reviewgate.core.schemas import (
     Reviewability,
     ReviewabilityReport,
 )
+from reviewgate_action import coexistence, post_comment
 
 _PROG: Final[str] = "reviewgate-action.run_core"
 
@@ -131,6 +132,46 @@ def _build_parser() -> argparse.ArgumentParser:
             "Optional path to write the §10.2 ReviewabilityReport JSON to. "
             "When omitted the JSON also goes to stdout (always written to "
             "stdout regardless of this flag so callers that pipe still work)."
+        ),
+    )
+    parser.add_argument(
+        "--mode",
+        choices=("auto", "action", "quiet"),
+        default="auto",
+        help=(
+            "§14.1 coexistence mode with the hosted ReviewGate App. "
+            "`auto` (default) defers to `.reviewgate.yml`'s `mode`; "
+            "`action` forces the Action to own posting; `quiet` skips "
+            "posting and ignores `--fail-on`."
+        ),
+    )
+    parser.add_argument(
+        "--post-comment",
+        choices=("true", "false"),
+        default="true",
+        help=(
+            "When `true` (the default) and §14.1 coexistence allows, "
+            "upsert the §13 ReviewGate marker comment on the PR. "
+            "Requires `pull-requests: write` on the GitHub token."
+        ),
+    )
+    parser.add_argument(
+        "--repo",
+        default=None,
+        help=(
+            "GitHub repository in `owner/repo` form. Defaults to the "
+            "`GITHUB_REPOSITORY` env var. Required when `--post-comment` "
+            "resolves to true."
+        ),
+    )
+    parser.add_argument(
+        "--pull-number",
+        type=int,
+        default=None,
+        help=(
+            "PR number for the comment upsert. Defaults to the value "
+            "embedded in `$GITHUB_EVENT_PATH`'s payload. Required when "
+            "`--post-comment` resolves to true."
         ),
     )
     return parser
@@ -224,22 +265,24 @@ def _merge_loaded_config(
     *,
     workspace: str | None,
     config_file: str,
-) -> tuple[dict[str, Any], list[EngineWarning], Path]:
+) -> tuple[dict[str, Any], list[EngineWarning], Path, ConfigMode]:
     """Apply the loaded `.reviewgate.yml` to ``payload['config']``.
 
-    Returns ``(payload, warnings, resolved_path)`` where ``warnings``
-    is the §12 config-load warning list (zero entries on success,
-    one entry on parse / validation failure with severity ``low``)
-    and ``resolved_path`` is the absolute path the loader inspected.
-    The payload is mutated in place and also returned so callers can
-    chain.
+    Returns ``(payload, warnings, resolved_path, config_mode)`` where
+    ``warnings`` is the §12 config-load warning list (zero entries
+    on success, one entry on parse / validation failure with severity
+    ``low``), ``resolved_path`` is the absolute path the loader
+    inspected, and ``config_mode`` is the effective ``.reviewgate.yml``
+    ``mode`` value (defaulting to ``"app"`` per §12 when the file is
+    missing or malformed). The payload is mutated in place and also
+    returned so callers can chain.
     """
 
     resolved = _resolve_config_path(workspace, config_file)
     yaml_text = _read_config_text(resolved)
     result = load_config(yaml_text, source_path=str(resolved))
     payload["config"] = result.config.model_dump(mode="json")
-    return payload, list(result.warnings), resolved
+    return payload, list(result.warnings), resolved, result.config.mode
 
 
 def _prepend_config_warnings(
@@ -379,7 +422,8 @@ def main(argv: list[str] | None = None) -> int:
 
     Returns the exit code documented per outcome:
 
-    * 0 on a successful run whose verdict is below ``--fail-on``.
+    * 0 on a successful run whose verdict is below ``--fail-on``,
+      or when §14.1 coexistence put the Action in a quiet mode.
     * 1 on a successful run whose verdict reaches ``--fail-on``.
     * 2 on every documented input/usage error (missing file, bad
       JSON, schema mismatch, unknown ``fail-on`` value).
@@ -390,10 +434,12 @@ def main(argv: list[str] | None = None) -> int:
     try:
         engine_input = _read_engine_input(Path(args.input))
         payload = engine_input.model_dump(mode="json")
-        payload, config_warnings, resolved_path = _merge_loaded_config(
-            payload,
-            workspace=args.workspace,
-            config_file=args.config_file,
+        payload, config_warnings, resolved_path, config_mode = (
+            _merge_loaded_config(
+                payload,
+                workspace=args.workspace,
+                config_file=args.config_file,
+            )
         )
         engine_input = _validated_engine_input(payload)
     except RuntimeError as exc:
@@ -408,6 +454,13 @@ def main(argv: list[str] | None = None) -> int:
             f"{_PROG}: loaded config from {resolved_path}\n"
         )
 
+    decision = coexistence.decide(
+        action_mode=args.mode,
+        config_mode=config_mode,
+        post_comment_input=(args.post_comment == "true"),
+    )
+    sys.stderr.write(f"{_PROG}: coexistence -- {decision.rationale}\n")
+
     serialized = report.model_dump_json(indent=2)
     sys.stdout.write(serialized)
     sys.stdout.write("\n")
@@ -416,6 +469,17 @@ def main(argv: list[str] | None = None) -> int:
 
     _emit_summary(report)
 
+    if decision.post_comment:
+        post_comment.upsert_from_environment(
+            report=report,
+            summary_md=render_summary(report),
+            repo_arg=args.repo,
+            pull_arg=args.pull_number,
+            log_prefix=_PROG,
+        )
+
+    if not decision.apply_fail_on:
+        return _EXIT_OK
     return exit_code_for_fail_on(args.fail_on, report.reviewability)
 
 

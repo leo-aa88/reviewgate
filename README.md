@@ -23,7 +23,7 @@ pytest
 
 The open-source GitHub Action wrapper lives in [`reviewgate-action/`](reviewgate-action/).
 
-> **Status: runtime preview (issues #24 + #25 landed; #26 pending).** The Action fetches PR metadata, loads `.reviewgate.yml`, runs the deterministic engine, and applies the §14 `fail-on` policy. The optional PR-comment upsert and `mode` coexistence skip behaviour land in #26; the `post-comment` and `mode` inputs are accepted today but otherwise no-ops. Pinning the Action as a required status check is now safe: the engine result drives the workflow exit code.
+> **Status: runtime complete (issues #24, #25, #26 landed).** The Action fetches PR metadata, loads `.reviewgate.yml`, runs the deterministic engine, applies the §14 `fail-on` policy, and (when §14.1 coexistence allows) upserts the §13 PR comment. By default (no `.reviewgate.yml` -> `mode: app`) the Action stays quiet on the PR surface so the hosted App owns posting; switch to `mode: action` to let the Action post.
 
 Reference workflow (verbatim from `docs/DESIGN.md` §14):
 

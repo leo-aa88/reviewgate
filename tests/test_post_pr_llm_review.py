@@ -32,7 +32,11 @@ if str(_SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_DIR))
 
 import post_pr_llm_review as ppr  # noqa: E402  (sys.path setup above)
-from _pr_review_llm import parse_diff_right_side  # noqa: E402
+from _pr_review_llm import (  # noqa: E402
+    _is_json_object,
+    _is_json_value,
+    parse_diff_right_side,
+)
 
 if TYPE_CHECKING:
     from _pr_review_llm import DiffIndex, JsonValue
@@ -401,6 +405,50 @@ def test_parse_diff_skips_hunk_when_no_current_path() -> None:
 
 
 # ---------------------------------------------------------------------------
+# _is_json_value / _is_json_object -- TypeGuard for the OpenAI return contract
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        None,
+        True,
+        0,
+        1.5,
+        "hi",
+        [1, "x", None],
+        {"a": 1, "b": [True, {"c": "d"}]},
+        {},
+        [],
+    ],
+)
+def test_is_json_value_accepts_well_formed_json(value: object) -> None:
+    assert _is_json_value(value) is True
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        {1: "non-str-key"},
+        {"k": {1, 2}},
+        {"k": object()},
+        [object()],
+        b"bytes-are-not-json",
+    ],
+)
+def test_is_json_value_rejects_non_json_shapes(value: object) -> None:
+    assert _is_json_value(value) is False
+
+
+def test_is_json_object_requires_top_level_dict_with_str_keys() -> None:
+    assert _is_json_object({"k": "v"}) is True
+    assert _is_json_object([1, 2, 3]) is False
+    assert _is_json_object("scalar") is False
+    assert _is_json_object({1: "non-str-key"}) is False
+
+
+# ---------------------------------------------------------------------------
 # _already_reviewed -- dedup across both issue-comment and review sources
 # ---------------------------------------------------------------------------
 
@@ -465,6 +513,122 @@ def test_already_reviewed_ignores_non_string_bodies() -> None:
         )
         is False
     )
+
+
+# ---------------------------------------------------------------------------
+# _process_pr orchestration -- happy path with stubbed GitHub + OpenAI
+# ---------------------------------------------------------------------------
+
+
+def test_process_pr_posts_review_with_anchored_and_demoted_findings(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """End-to-end smoke for ``_process_pr``: stub all I/O and assert the
+    Reviews API payload carries the right ``event``, ``commit_id``,
+    ``body``, and ``comments`` array.
+
+    Covers two model-output shapes in one shot:
+
+    * a valid inline anchor (``foo.py:2``) that lands in the
+      ``comments`` payload as a ``side: RIGHT`` entry, and
+    * an out-of-diff anchor (``foo.py:99``) that gets demoted into the
+      review body rather than silently dropped.
+    """
+
+    head_sha = "deadbeef0123456789abcdef0000000000000000"
+    diff_text = (
+        "diff --git a/foo.py b/foo.py\n"
+        "--- a/foo.py\n"
+        "+++ b/foo.py\n"
+        "@@ -1,1 +1,2 @@\n"
+        " line_one\n"
+        "+line_two\n"
+    )
+
+    posted: dict[str, ppr.JsonObject] = {}
+
+    def fake_http_json(
+        method: str,
+        url: str,
+        token: str,
+        *,
+        accept: str = "application/vnd.github+json",
+        body: ppr.JsonObject | None = None,
+    ) -> ppr.JsonValue:
+        if method == "GET" and url.endswith("/pulls/7"):
+            return {"head": {"sha": head_sha, "repo": {"full_name": "o/r"}}}
+        if method == "POST" and url.endswith("/pulls/7/reviews"):
+            assert body is not None
+            posted["payload"] = body
+            return {}
+        raise AssertionError(f"unexpected HTTP call: {method} {url}")
+
+    def fake_http_text(
+        method: str, url: str, token: str, *, accept: str
+    ) -> str:
+        assert "diff" in accept
+        return diff_text
+
+    def fake_list_issue_comments(*args: object, **kwargs: object) -> list[ppr.JsonObject]:
+        return []
+
+    def fake_list_pr_reviews(*args: object, **kwargs: object) -> list[ppr.JsonObject]:
+        return []
+
+    def fake_call_openai_review(
+        diff_text_arg: str,
+        *,
+        repo: str,
+        pr_number: int,
+        diff_index: object,
+    ) -> ppr.JsonObject:
+        return {
+            "verdict": "request_changes",
+            "summary": "Found one issue.",
+            "inline_comments": [
+                {
+                    "path": "foo.py",
+                    "line": 2,
+                    "severity": "must",
+                    "body": "Use a constant.",
+                    "quoted_line": "+line_two",
+                },
+                {
+                    "path": "foo.py",
+                    "line": 99,
+                    "severity": "should",
+                    "body": "Out of diff.",
+                    "quoted_line": "+missing",
+                },
+            ],
+            "general_comments": [],
+        }
+
+    monkeypatch.setattr(ppr, "_http_json", fake_http_json)
+    monkeypatch.setattr(ppr, "_http_text", fake_http_text)
+    monkeypatch.setattr(ppr, "_list_issue_comments", fake_list_issue_comments)
+    monkeypatch.setattr(ppr, "_list_pr_reviews", fake_list_pr_reviews)
+    monkeypatch.setattr(ppr, "call_openai_review", fake_call_openai_review)
+    monkeypatch.setenv("OPENAI_API_KEY", "stub-key")
+
+    result = ppr._process_pr("o", "r", "o/r", 7, "tok")
+
+    assert result.startswith("posted request_changes review for deadbee")
+    payload = posted["payload"]
+    assert payload["commit_id"] == head_sha
+    assert payload["event"] == "REQUEST_CHANGES"
+    body_str = str(payload["body"])
+    assert ppr._marker(head_sha) in body_str
+    assert "Out of diff." in body_str  # demoted entry surfaces in body
+    comments = payload["comments"]
+    assert isinstance(comments, list)
+    assert len(comments) == 1
+    only = comments[0]
+    assert isinstance(only, dict)
+    assert only["path"] == "foo.py"
+    assert only["line"] == 2
+    assert only["side"] == "RIGHT"
+    assert "Use a constant." in str(only["body"])
 
 
 def test_post_pr_review_accepts_allowlisted_events(monkeypatch: pytest.MonkeyPatch) -> None:

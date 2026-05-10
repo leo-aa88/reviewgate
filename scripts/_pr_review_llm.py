@@ -18,7 +18,7 @@ import os
 import re
 import ssl
 import urllib.request
-from typing import Final, TypeAlias
+from typing import Final, TypeAlias, TypeGuard
 
 # Closed type for any value that survives a `json.loads` round-trip. We
 # avoid `typing.Any` because the project rule requires every `Any` to be
@@ -31,6 +31,41 @@ JsonObject: TypeAlias = "dict[str, JsonValue]"
 
 # `path -> set of valid RIGHT-side line numbers an inline comment can anchor to`.
 DiffIndex: TypeAlias = "dict[str, set[int]]"
+
+
+def _is_json_value(value: object) -> TypeGuard[JsonValue]:
+    """Recursively verify that ``value`` is a fully-typed :data:`JsonValue`.
+
+    The :data:`JsonValue` alias is closed: anything that survives
+    ``json.loads`` *and* fits the alias definition. Without this guard,
+    a top-level ``isinstance(parsed, dict)`` check would let arbitrary
+    objects (e.g. non-string keys, ``set`` values from a faked
+    deserializer) leak through as ``Any``-shaped data and undermine the
+    rest of the type system. The guard is intentionally strict:
+    non-``str`` keys are rejected, and every nested element must
+    itself be a :data:`JsonValue`.
+    """
+
+    if value is None or isinstance(value, (bool, int, float, str)):
+        return True
+    if isinstance(value, list):
+        return all(_is_json_value(v) for v in value)
+    if isinstance(value, dict):
+        return all(
+            isinstance(k, str) and _is_json_value(v) for k, v in value.items()
+        )
+    return False
+
+
+def _is_json_object(value: object) -> TypeGuard[JsonObject]:
+    """Verify that ``value`` is a :data:`JsonObject` (str-keyed JSON dict).
+
+    Used by :func:`call_openai_review` to harden the contract on the
+    decoded chat-completions content: a top-level ``dict`` is necessary
+    but not sufficient.
+    """
+
+    return isinstance(value, dict) and _is_json_value(value)
 
 DEFAULT_MODEL: Final[str] = "gpt-5.4"
 OPENAI_TIMEOUT_SECS: Final[int] = 240
@@ -343,6 +378,6 @@ def call_openai_review(
     except (KeyError, IndexError, TypeError) as exc:
         raise RuntimeError(f"Unexpected OpenAI response shape: {data!r}") from exc
     parsed = json.loads(content) if isinstance(content, str) else content
-    if not isinstance(parsed, dict):
-        raise RuntimeError(f"OpenAI returned non-object content: {content!r}")
+    if not _is_json_object(parsed):
+        raise RuntimeError(f"OpenAI returned non-JsonObject content: {content!r}")
     return parsed

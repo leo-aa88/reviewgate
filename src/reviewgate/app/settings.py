@@ -16,7 +16,7 @@ Example:
 
 from __future__ import annotations
 
-from pydantic import Field
+from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -35,5 +35,26 @@ class AppSettings(BaseSettings):
             "internal rate limits (``docs/DESIGN.md`` §13.6–§13.7, §22.2). "
             "When unset, Redis-backed features stay disabled until staging "
             "provides a URL."
+        ),
+    )
+    github_app_id: int | None = Field(
+        default=None,
+        description=(
+            "Numeric GitHub App ID (``docs/DESIGN.md`` §13.4) used as the JWT "
+            "``iss`` claim."
+        ),
+    )
+    github_app_private_key: SecretStr | None = Field(
+        default=None,
+        description=(
+            "PEM-encoded RSA private key for signing GitHub App JWTs. Never "
+            "log this value; use ``.get_secret_value()`` only at signing time."
+        ),
+    )
+    github_webhook_secret: SecretStr | None = Field(
+        default=None,
+        description=(
+            "Secret for ``X-Hub-Signature-256`` webhook verification "
+            "(``docs/DESIGN.md`` §13.3). Never log this value."
         ),
     )

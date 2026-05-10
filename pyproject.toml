@@ -84,6 +84,8 @@ app = [
     "pydantic-settings>=2.2.0",
     "redis>=5.0.0",
     "dramatiq[redis]>=1.17.0",
+    "PyJWT[crypto]>=2.8.0",
+    "httpx>=0.27.0",
 ]
 
 [tool.pytest.ini_options]

@@ -77,9 +77,10 @@ dev = [
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 # ``src`` is on the path so ``import reviewgate`` / ``import reviewgate_action``
-# resolve without an editable install. ``tests`` enables shared fixtures
-# (``tests/fixtures/...``, see ``tests/fixtures/m2_golden/manifest.py``).
-pythonpath = ["src", "tests", "."]
+# resolve without an editable install. Omit the repo root so pytest does not
+# mask broken installs by importing loose modules from ``.``. ``tests`` enables
+# shared fixtures (``tests/fixtures/...``, see ``tests/fixtures/m2_golden/manifest.py``).
+pythonpath = ["src", "tests"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/reviewgate", "src/reviewgate_action"]

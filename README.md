@@ -48,6 +48,10 @@ jobs:
 
 See [`reviewgate-action/README.md`](reviewgate-action/README.md) for the full input/output reference and the §14.1 coexistence rules with the hosted ReviewGate App.
 
+## Onboarding
+
+New beta team? See [`docs/ONBOARDING.md`](docs/ONBOARDING.md) for the operator-facing walkthrough: hosted App install, repo selection, `.reviewgate.yml`, the optional GitHub Action, §14.1 coexistence rules, and how to make ReviewGate a required status check. The guide spells out that LLM reports are opt-in (`llm_reports: false` default per §21.3) so deterministic-only mode never sends PR content off your repository.
+
 ## Contributing
 
 Before opening a PR, see [`CONTRIBUTING.md`](CONTRIBUTING.md). Note in

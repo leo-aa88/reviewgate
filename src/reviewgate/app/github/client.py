@@ -15,6 +15,7 @@ a ``retriable`` flag for backoff logic.
 
 from __future__ import annotations
 
+import base64
 import logging
 from typing import Any, Final
 from urllib.parse import quote
@@ -285,3 +286,101 @@ def fetch_pull_request_files(
             client.close()
 
     return aggregated
+
+
+def fetch_repository_text_file_contents(
+    installation_token: SecretStr,
+    *,
+    owner: str,
+    repo: str,
+    path: str,
+    git_ref: str,
+    http_client: httpx.Client | None = None,
+) -> str | None:
+    """Return UTF-8 file text from the contents API, or ``None`` when missing (404).
+
+    Calls ``GET /repos/{owner}/{repo}/contents/{path}?ref={git_ref}`` per
+    ``docs/DESIGN.md`` §13.5. Only ``type=file`` responses with ``base64``
+    encoding are decoded; other successful shapes are treated as missing.
+    """
+
+    own = _validate_repo_segment("owner", owner)
+    rep = _validate_repo_segment("repository", repo)
+    cleaned_path = path.strip().lstrip("/")
+    if not cleaned_path or ".." in cleaned_path.split("/"):
+        msg = "path must be a non-empty repo-relative path without parent segments"
+        raise ValueError(msg)
+    ref = git_ref.strip()
+    if not ref:
+        msg = "git_ref must be a non-empty branch or tag name"
+        raise ValueError(msg)
+
+    url = (
+        f"{_GITHUB_API_ORIGIN}/repos/"
+        f"{quote(own, safe='')}/{quote(rep, safe='')}/contents/{quote(cleaned_path, safe='')}"
+    )
+    headers = _installation_auth_headers(installation_token)
+    owns_client = http_client is None
+    client = http_client or httpx.Client(timeout=_DEFAULT_HTTP_TIMEOUT_SECONDS)
+    try:
+        try:
+            response = client.get(url, headers=headers, params={"ref": ref})
+        except httpx.HTTPError as exc:
+            _log_github_failure(
+                operation="fetch_repository_text_file_contents",
+                response=None,
+                retriable=True,
+                detail=str(exc),
+            )
+            msg = "HTTP transport error while fetching repository file contents"
+            raise GitHubRestError(
+                msg,
+                status_code=None,
+                retriable=True,
+                request_id=None,
+            ) from exc
+
+        if response.status_code == httpx.codes.NOT_FOUND:
+            return None
+
+        _raise_for_github_response(
+            operation="fetch_repository_text_file_contents",
+            response=response,
+        )
+    finally:
+        if owns_client:
+            client.close()
+
+    try:
+        body: object = response.json()
+    except ValueError as exc:
+        msg = "GitHub contents response was not valid JSON"
+        raise GitHubRestError(
+            msg,
+            status_code=response.status_code,
+            retriable=False,
+            request_id=response.headers.get("x-github-request-id"),
+        ) from exc
+    if not isinstance(body, dict):
+        msg = "GitHub contents response JSON was not an object"
+        raise GitHubRestError(
+            msg,
+            status_code=response.status_code,
+            retriable=False,
+            request_id=response.headers.get("x-github-request-id"),
+        )
+    if body.get("type") != "file":
+        return None
+    if body.get("encoding") != "base64" or not isinstance(body.get("content"), str):
+        return None
+    raw_b64 = str(body["content"]).replace("\n", "")
+    try:
+        return base64.b64decode(raw_b64).decode("utf-8")
+    except (ValueError, UnicodeDecodeError) as exc:
+        msg = "GitHub contents payload was not valid base64 UTF-8 text"
+        raise GitHubRestError(
+            msg,
+            status_code=response.status_code,
+            retriable=False,
+            request_id=response.headers.get("x-github-request-id"),
+        ) from exc

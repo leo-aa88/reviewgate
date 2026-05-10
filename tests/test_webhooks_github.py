@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import hashlib
 import hmac
-from unittest.mock import patch
+from typing import Literal
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -14,10 +15,36 @@ pytest.importorskip("fastapi")
 import dramatiq
 from dramatiq.brokers.stub import StubBroker
 
+import reviewgate.app.webhooks.github as github_webhook_module
+
 from reviewgate.app.analysis import broker_install
 from reviewgate.app.main import create_app
 
 _PR_OPENED_BODY = b'{"action":"opened","number":1}'
+
+
+@pytest.fixture(autouse=True)
+def _stub_github_webhook_delivery_claim(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Satisfy DATABASE_URL gating without contacting Postgres in unit tests."""
+
+    monkeypatch.setenv(
+        "REVIEWGATE_DATABASE_URL",
+        "postgresql://unused:unused@127.0.0.1:9/unused",
+    )
+
+    def _claim(
+        _settings: object,
+        *,
+        delivery_id: str,
+        event_name: str,
+    ) -> Literal["claimed"]:
+        return "claimed"
+
+    monkeypatch.setattr(
+        github_webhook_module,
+        "claim_github_webhook_delivery",
+        _claim,
+    )
 
 
 @pytest.fixture(autouse=True)
@@ -91,6 +118,30 @@ def test_github_webhook_rejects_when_secret_unconfigured(
     with TestClient(create_app()) as client:
         response = client.post("/webhooks/github", content=b"{}")
     assert response.status_code == 503
+
+
+def test_github_webhook_rejects_when_database_unconfigured(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``pull_request`` enqueue requires ``REVIEWGATE_DATABASE_URL``."""
+
+    monkeypatch.delenv("REVIEWGATE_DATABASE_URL", raising=False)
+    monkeypatch.setenv("REVIEWGATE_GITHUB_WEBHOOK_SECRET", "s")
+    monkeypatch.setenv("REVIEWGATE_REDIS_URL", "redis://127.0.0.1:6379/0")
+    body = _PR_OPENED_BODY
+    with patch("reviewgate.app.analysis.jobs.run_pr_analysis_stub.send") as send:
+        with TestClient(create_app()) as client:
+            response = client.post(
+                "/webhooks/github",
+                content=body,
+                headers={
+                    "x-hub-signature-256": _signature(body, "s"),
+                    "x-github-delivery": "d",
+                    "x-github-event": "pull_request",
+                },
+            )
+    assert response.status_code == 503
+    send.assert_not_called()
 
 
 def test_github_webhook_rejects_when_redis_unconfigured(
@@ -276,6 +327,88 @@ def test_github_webhook_pull_request_invalid_json_returns_400(
                 headers={
                     "x-hub-signature-256": _signature(body, "s"),
                     "x-github-delivery": "d",
+                    "x-github-event": "pull_request",
+                },
+            )
+    assert response.status_code == 400
+    send.assert_not_called()
+
+
+def test_github_webhook_database_unavailable_returns_503(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``database_unavailable`` from the claim path yields a retryable 503."""
+
+    monkeypatch.setenv("REVIEWGATE_GITHUB_WEBHOOK_SECRET", "s")
+    monkeypatch.setenv("REVIEWGATE_REDIS_URL", "redis://127.0.0.1:6379/0")
+    body = _PR_OPENED_BODY
+    with patch(
+        "reviewgate.app.webhooks.github.run_in_threadpool",
+        new=AsyncMock(return_value="database_unavailable"),
+    ):
+        with patch("reviewgate.app.analysis.jobs.run_pr_analysis_stub.send") as send:
+            with TestClient(create_app()) as client:
+                response = client.post(
+                    "/webhooks/github",
+                    content=body,
+                    headers={
+                        "x-hub-signature-256": _signature(body, "s"),
+                        "x-github-delivery": "d-db",
+                        "x-github-event": "pull_request",
+                    },
+                )
+    assert response.status_code == 503
+    send.assert_not_called()
+
+
+def test_github_webhook_duplicate_delivery_returns_202_without_enqueue(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A duplicate ``github_delivery_id`` returns **200** without ``.send`` (§13.3)."""
+
+    monkeypatch.setenv("REVIEWGATE_GITHUB_WEBHOOK_SECRET", "s")
+    monkeypatch.setenv("REVIEWGATE_REDIS_URL", "redis://127.0.0.1:6379/0")
+    body = _PR_OPENED_BODY
+    with patch(
+        "reviewgate.app.webhooks.github.run_in_threadpool",
+        new=AsyncMock(return_value="duplicate"),
+    ):
+        with patch(
+            "reviewgate.app.analysis.broker_install.RedisBroker",
+            lambda **_: StubBroker(),
+        ):
+            with patch(
+                "reviewgate.app.analysis.jobs.run_pr_analysis_stub.send",
+            ) as send:
+                with TestClient(create_app()) as client:
+                    response = client.post(
+                        "/webhooks/github",
+                        content=body,
+                        headers={
+                            "x-hub-signature-256": _signature(body, "s"),
+                            "x-github-delivery": "dup-1",
+                            "x-github-event": "pull_request",
+                        },
+                    )
+    assert response.status_code == 200
+    send.assert_not_called()
+
+
+def test_github_webhook_missing_delivery_id_returns_400(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Enqueueable ``pull_request`` events require ``X-GitHub-Delivery``."""
+
+    monkeypatch.setenv("REVIEWGATE_GITHUB_WEBHOOK_SECRET", "secret")
+    monkeypatch.setenv("REVIEWGATE_REDIS_URL", "redis://127.0.0.1:6379/0")
+    body = _PR_OPENED_BODY
+    with patch("reviewgate.app.analysis.jobs.run_pr_analysis_stub.send") as send:
+        with TestClient(create_app()) as client:
+            response = client.post(
+                "/webhooks/github",
+                content=body,
+                headers={
+                    "x-hub-signature-256": _signature(body, "secret"),
                     "x-github-event": "pull_request",
                 },
             )

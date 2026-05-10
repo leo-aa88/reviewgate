@@ -1,18 +1,20 @@
 """GitHub ``POST /webhooks/github`` handler (``docs/DESIGN.md`` §13.3).
 
 Validates ``X-Hub-Signature-256`` using the configured webhook secret, then
-enqueues a lightweight Dramatiq message carrying delivery metadata so the HTTP
-request returns quickly (§13.3). The actor module is imported inside the handler after
-:func:`reviewgate.app.analysis.broker_install.install_redis_broker` runs so the
-broker matches ``REVIEWGATE_REDIS_URL`` (and not Dramatiq's implicit default).
-Payload persistence and
-delivery dedupe are handled in later issues (#34, #50).
+routes by ``X-GitHub-Event`` per ``docs/DESIGN.md`` §13.2: ``ping`` and
+installation events return **202** without Redis; unsupported events return
+**204**; ``pull_request`` actions in ``opened`` / ``synchronize`` / ``edited`` /
+``reopened`` enqueue a stub Dramatiq job (§13.3). The actor module is imported
+only on the enqueue path after
+:func:`reviewgate.app.analysis.broker_install.install_redis_broker` runs.
+Payload persistence and delivery dedupe are handled in later issues (#34, #50).
 """
 
 from __future__ import annotations
 
 import hashlib
 import hmac
+import json
 from typing import Final
 
 from fastapi import APIRouter, HTTPException, Request, Response, status
@@ -24,6 +26,18 @@ from reviewgate.app.settings import AppSettings
 router = APIRouter()
 
 _SHA256_PREFIX: Final[str] = "sha256="
+
+# ``docs/DESIGN.md`` §13.2 — PR events that may enqueue analysis (``edited`` is
+# filtered further in issue #50 once ``changes`` inspection exists).
+_PULL_REQUEST_ANALYSIS_ACTIONS: Final[frozenset[str]] = frozenset(
+    {"opened", "synchronize", "edited", "reopened"},
+)
+
+# Lifecycle probes GitHub sends during setup or installation management; no
+# analysis job (§13.2 installation webhooks land here until issue #34+).
+_ACK_EVENTS_NO_QUEUE: Final[frozenset[str]] = frozenset(
+    {"ping", "installation", "installation_repositories"},
+)
 
 
 def _verify_signature_sha256(
@@ -46,7 +60,7 @@ def _verify_signature_sha256(
 
 @router.post("/webhooks/github")
 async def github_webhook(request: Request) -> Response:
-    """Verify the webhook signature and enqueue a stub analysis job."""
+    """Verify the signature, then acknowledge or enqueue per ``DESIGN.md`` §13.2."""
 
     settings = AppSettings()
     body = await request.body()
@@ -64,6 +78,33 @@ async def github_webhook(request: Request) -> Response:
             detail="Invalid or missing GitHub webhook signature",
         )
 
+    delivery_id = request.headers.get("x-github-delivery", "")
+    event_name = request.headers.get("x-github-event", "")
+
+    if event_name in _ACK_EVENTS_NO_QUEUE:
+        return Response(status_code=status.HTTP_202_ACCEPTED)
+
+    if event_name != "pull_request":
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+    try:
+        payload_obj: object = json.loads(body.decode("utf-8"))
+    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            detail="pull_request webhook body must be JSON",
+        ) from exc
+
+    if not isinstance(payload_obj, dict):
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            detail="pull_request webhook body must be a JSON object",
+        )
+
+    action = payload_obj.get("action")
+    if not isinstance(action, str) or action not in _PULL_REQUEST_ANALYSIS_ACTIONS:
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+
     if settings.redis_url is None:
         raise HTTPException(
             status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -72,15 +113,13 @@ async def github_webhook(request: Request) -> Response:
 
     install_redis_broker(settings)
 
-    delivery_id = request.headers.get("x-github-delivery", "")
-    event_name = request.headers.get("x-github-event", "")
-
     from reviewgate.app.analysis.jobs import run_pr_analysis_stub
 
     run_pr_analysis_stub.send(
         {
             "github_delivery_id": delivery_id,
             "github_event": event_name,
+            "github_pull_request_action": action,
         },
     )
 

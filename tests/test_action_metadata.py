@@ -244,15 +244,54 @@ def test_scaffold_does_not_declare_unimplemented_outputs(
 
 
 def test_top_level_readme_includes_design_doc_snippet() -> None:
-    """The §14 reference snippet must be reproducible from the README."""
+    """The §14 reference snippet must be reproducible from the README.
+
+    The ``uses:`` value uses GitHub Actions' documented
+    ``{owner}/{repo}/{path}@{ref}`` form so consumers can reference
+    the Action at its real subdirectory location
+    (``reviewgate-action/action.yml``). This is *not* a typo of the
+    ``{owner}/{repo}@{ref}`` form -- the official "Using actions"
+    docs cover both shapes, and the path form survives the future
+    split into the standalone `reviewgate/reviewgate-action` repo.
+    """
 
     readme = _TOP_README.read_text(encoding="utf-8")
     assert "leo-aa88/reviewgate-core/reviewgate-action@v1" in readme, (
-        "Top-level README must reference the Action at its consumer path"
+        "Top-level README must reference the Action at its subdirectory "
+        "consumer path (DESIGN.md §14, GitHub Actions "
+        "{owner}/{repo}/{path}@{ref} form)"
     )
     assert "github-token: ${{ secrets.GITHUB_TOKEN }}" in readme
     assert "fail-on: FAIL" in readme
     assert "post-comment: true" in readme
+
+
+def test_action_subdirectory_path_in_uses_resolves_to_real_action_yml() -> None:
+    """The README's ``uses:`` subdirectory path must hit a real ``action.yml``.
+
+    Concretely: parse the ``{path}`` segment from the documented
+    ``leo-aa88/reviewgate-core/{path}@v1`` reference and assert that
+    ``<repo>/<path>/action.yml`` exists on disk. Catches the
+    foot-gun of documenting a path that does not match the actual
+    repository layout, which would otherwise only fail at consumer
+    runtime with a "Can't find 'action.yml'" error from the runner.
+    """
+
+    readme = _TOP_README.read_text(encoding="utf-8")
+    marker = "leo-aa88/reviewgate-core/"
+    assert marker in readme
+    after = readme.split(marker, 1)[1]
+    path_segment = after.split("@", 1)[0].strip()
+    resolved = _REPO_ROOT / path_segment / "action.yml"
+    assert resolved.is_file(), (
+        f"README documents `uses: leo-aa88/reviewgate-core/{path_segment}` "
+        f"but {resolved.relative_to(_REPO_ROOT)} does not exist; the "
+        "subdirectory `uses:` form requires a real action.yml at that path"
+    )
+    assert resolved == _ACTION_YML, (
+        f"documented `uses:` resolves to {resolved}, but the test fixture "
+        f"expects {_ACTION_YML}"
+    )
 
 
 def test_action_readme_documents_every_input_and_planned_outputs() -> None:

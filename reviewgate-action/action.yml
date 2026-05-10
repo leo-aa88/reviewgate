@@ -12,6 +12,19 @@
 #         fail-on: FAIL
 #         post-comment: true
 #
+# Note on the `uses:` path: GitHub Actions resolves
+# ``{owner}/{repo}/{path}@{ref}`` as the subdirectory action at
+# ``{path}/action.yml`` in ``{owner}/{repo}``. See the official
+# "Using actions" docs ("Referencing an action in the same
+# repository where a workflow file uses the action" and "Referencing
+# an action in a different repository"). This Action's `action.yml`
+# lives at ``reviewgate-action/action.yml``, so the documented
+# ``leo-aa88/reviewgate-core/reviewgate-action@v1`` form is the
+# correct subdirectory reference -- it is not a `{owner}/{repo}@{ref}`
+# typo. The form survives the future split into the standalone
+# `reviewgate/reviewgate-action` repository because the `<path>`
+# segment simply collapses out.
+#
 # The actual fetch / core / comment / fail-on logic lands in the
 # follow-on issues (#24, #25, #26). This scaffold validates the inputs
 # and then **fails closed** with `::error::` + `exit 1` so a workflow

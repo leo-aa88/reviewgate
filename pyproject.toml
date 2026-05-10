@@ -73,6 +73,13 @@ dev = [
     "pytest>=8.0",
     "types-PyYAML>=6.0",
 ]
+# Hosted GitHub App persistence (``docs/DESIGN.md`` §16.1). Kept optional so
+# ``reviewgate`` core wheels stay free of database drivers (see purity tests).
+app = [
+    "SQLAlchemy>=2.0.30",
+    "alembic>=1.13.2",
+    "psycopg[binary]>=3.1.18",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -97,6 +104,8 @@ only-include = ["src/reviewgate", "src/reviewgate_action/reviewgate_action"]
 include = [
     "src/reviewgate",
     "src/reviewgate_action",
+    "alembic",
+    "alembic.ini",
     "tests",
     "docs/DESIGN.md",
     "docs/ONBOARDING.md",

@@ -3,8 +3,9 @@
 Validates ``X-Hub-Signature-256`` using the configured webhook secret, then
 routes by ``X-GitHub-Event`` per ``docs/DESIGN.md`` §13.2: ``ping`` and
 installation events return **202** without Redis; unsupported events return
-**204**; ``pull_request`` actions in ``opened`` / ``synchronize`` / ``edited`` /
-``reopened`` enqueue a stub Dramatiq job (§13.3). The actor module is imported
+**204**; ``pull_request`` actions in ``opened`` / ``synchronize`` / ``reopened`` enqueue
+a stub job; ``edited`` enqueues only when ``changes`` touches ``title``,
+``body``, or ``base`` (§13.2). The actor module is imported
 only on the enqueue path after
 :func:`reviewgate.app.analysis.broker_install.install_redis_broker` runs.
 Payload persistence and delivery dedupe are handled in later issues (#34, #50).
@@ -27,10 +28,14 @@ router = APIRouter()
 
 _SHA256_PREFIX: Final[str] = "sha256="
 
-# ``docs/DESIGN.md`` §13.2 — PR events that may enqueue analysis (``edited`` is
-# filtered further in issue #50 once ``changes`` inspection exists).
+# ``docs/DESIGN.md`` §13.2 — PR events that may enqueue analysis.
 _PULL_REQUEST_ANALYSIS_ACTIONS: Final[frozenset[str]] = frozenset(
     {"opened", "synchronize", "edited", "reopened"},
+)
+
+# Subset of ``pull_request`` ``changes`` keys that affect reviewability (§13.2).
+_PULL_REQUEST_EDIT_RELEVANT_CHANGES: Final[frozenset[str]] = frozenset(
+    {"title", "body", "base"},
 )
 
 # Lifecycle probes GitHub sends during setup or installation management; no
@@ -104,6 +109,13 @@ async def github_webhook(request: Request) -> Response:
     action = payload_obj.get("action")
     if not isinstance(action, str) or action not in _PULL_REQUEST_ANALYSIS_ACTIONS:
         return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+    if action == "edited":
+        changes = payload_obj.get("changes")
+        if not isinstance(changes, dict):
+            return Response(status_code=status.HTTP_204_NO_CONTENT)
+        if not _PULL_REQUEST_EDIT_RELEVANT_CHANGES.intersection(changes):
+            return Response(status_code=status.HTTP_204_NO_CONTENT)
 
     if settings.redis_url is None:
         raise HTTPException(

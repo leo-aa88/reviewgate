@@ -148,6 +148,59 @@ def test_github_webhook_installation_ack_without_redis(
     send.assert_not_called()
 
 
+def test_github_webhook_pull_request_edited_without_reviewable_changes_returns_204(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``pull_request`` ``edited`` with no title/body/base change yields 204 (§13.2)."""
+
+    monkeypatch.setenv("REVIEWGATE_GITHUB_WEBHOOK_SECRET", "s")
+    monkeypatch.delenv("REVIEWGATE_REDIS_URL", raising=False)
+    body = b'{"action":"edited","changes":{}}'
+    with patch("reviewgate.app.analysis.jobs.run_pr_analysis_stub.send") as send:
+        with TestClient(create_app()) as client:
+            response = client.post(
+                "/webhooks/github",
+                content=body,
+                headers={
+                    "x-hub-signature-256": _signature(body, "s"),
+                    "x-github-delivery": "d",
+                    "x-github-event": "pull_request",
+                },
+            )
+    assert response.status_code == 204
+    send.assert_not_called()
+
+
+def test_github_webhook_pull_request_edited_title_change_enqueues(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``pull_request`` ``edited`` with a title change enqueues."""
+
+    monkeypatch.setenv("REVIEWGATE_GITHUB_WEBHOOK_SECRET", "s")
+    monkeypatch.setenv("REVIEWGATE_REDIS_URL", "redis://127.0.0.1:6379/0")
+    body = b'{"action":"edited","changes":{"title":{"from":"old"}}}'
+    with patch(
+        "reviewgate.app.analysis.broker_install.RedisBroker",
+        lambda **_: StubBroker(),
+    ):
+        with patch(
+            "reviewgate.app.analysis.jobs.run_pr_analysis_stub.send",
+        ) as send:
+            with TestClient(create_app()) as client:
+                response = client.post(
+                    "/webhooks/github",
+                    content=body,
+                    headers={
+                        "x-hub-signature-256": _signature(body, "s"),
+                        "x-github-delivery": "d",
+                        "x-github-event": "pull_request",
+                    },
+                )
+    assert response.status_code == 202
+    send.assert_called_once()
+    assert send.call_args[0][0]["github_pull_request_action"] == "edited"
+
+
 def test_github_webhook_pull_request_labeled_returns_204(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

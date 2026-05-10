@@ -8,8 +8,9 @@ a stub job; ``edited`` enqueues only when ``changes`` touches ``title``,
 ``body``, or ``base`` (§13.2). The actor module is imported
 only on the enqueue path after
 :func:`reviewgate.app.analysis.broker_install.install_redis_broker` runs.
-Delivery dedupe uses ``webhook_deliveries`` when ``REVIEWGATE_DATABASE_URL`` is
-set (issue #34). Payload persistence is handled in later issues (#50).
+Delivery dedupe persists ``X-GitHub-Delivery`` to ``webhook_deliveries``; the
+enqueue path requires ``REVIEWGATE_DATABASE_URL`` and ``REVIEWGATE_REDIS_URL``
+(issue #34). Payload persistence is handled in later issues (#50).
 """
 
 from __future__ import annotations
@@ -132,6 +133,12 @@ async def github_webhook(request: Request) -> Response:
             detail="Redis URL is not configured for job enqueue",
         )
 
+    if settings.database_url is None:
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Database URL is required for pull_request webhook processing",
+        )
+
     claim_result = await run_in_threadpool(
         claim_github_webhook_delivery,
         settings,
@@ -140,6 +147,11 @@ async def github_webhook(request: Request) -> Response:
     )
     if claim_result == "duplicate":
         return Response(status_code=status.HTTP_202_ACCEPTED)
+    if claim_result == "database_unavailable":
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Temporary database error while recording webhook delivery",
+        )
 
     install_redis_broker(settings)
 

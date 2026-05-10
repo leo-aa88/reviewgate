@@ -4,13 +4,13 @@ from __future__ import annotations
 
 from typing import Literal
 
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, OperationalError
 
 from reviewgate.app.settings import AppSettings
 from reviewgate.app.storage.db import create_engine_from_settings, create_session_factory
 from reviewgate.app.storage.models import WebhookDelivery
 
-ClaimResult = Literal["claimed", "duplicate", "no_database"]
+ClaimResult = Literal["claimed", "duplicate", "database_unavailable"]
 
 
 def claim_github_webhook_delivery(
@@ -28,14 +28,23 @@ def claim_github_webhook_delivery(
 
     Returns:
         ``claimed`` when a new row was committed, ``duplicate`` when the delivery
-        id was already recorded, or ``no_database`` when no database URL is
-        configured (dedupe is skipped so local stacks without Postgres still
-        enqueue).
+        id was already recorded, or ``database_unavailable`` when Postgres is
+        unreachable so the HTTP layer can surface a retryable **503**.
+
+    Raises:
+        RuntimeError: If ``settings.database_url`` is unset (callers must gate).
     """
+
+    if settings.database_url is None:
+        raise RuntimeError(
+            "claim_github_webhook_delivery requires REVIEWGATE_DATABASE_URL",
+        )
 
     engine = create_engine_from_settings(settings)
     if engine is None:
-        return "no_database"
+        raise RuntimeError(
+            "create_engine_from_settings returned None despite database_url being set",
+        )
 
     session_factory = create_session_factory(engine)
     with session_factory() as session:
@@ -50,4 +59,7 @@ def claim_github_webhook_delivery(
         except IntegrityError:
             session.rollback()
             return "duplicate"
+        except OperationalError:
+            session.rollback()
+            return "database_unavailable"
         return "claimed"

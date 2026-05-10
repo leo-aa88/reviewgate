@@ -323,6 +323,53 @@ def test_analyze_silences_risky_paths_warning_when_body_mentions_category() -> N
     assert report.warnings == []
 
 
+def test_analyze_emits_mixed_concern_warning_on_three_risk_categories() -> None:
+    """\u00a710.11: 3 risk categories in one PR -> mixed-concern warning."""
+
+    from reviewgate.core.mixed_concern import WARN_CODE_MIXED_CONCERN
+
+    body = (
+        "Closes #1.\n\n"
+        "Coordinated change touching authentication helpers, the billing "
+        "invoice writer, and the kubernetes deployment manifests as part "
+        "of the multi-service rollout."
+    )
+    engine_input = EngineInput(
+        pr=_pr(additions=20, deletions=5, changed_files=3, body=body),
+        files=[
+            _file("services/auth/sso.py", changes=10),
+            _file("billing/invoice.py", changes=10),
+            _file("infra/k8s/deploy.yaml", changes=5),
+        ],
+    )
+    report = analyze(engine_input)
+
+    [warning] = [w for w in report.warnings if w.code == WARN_CODE_MIXED_CONCERN]
+    assert warning.severity == "medium"
+    assert warning.evidence["risk_categories_touched"] == [
+        "auth",
+        "billing",
+        "infra",
+    ]
+
+
+def test_analyze_does_not_emit_mixed_concern_for_focused_pr() -> None:
+    """\u00a710.11 normal: source + tests + docs PR stays silent on mixed-concern."""
+
+    from reviewgate.core.mixed_concern import WARN_CODE_MIXED_CONCERN
+
+    engine_input = EngineInput(
+        pr=_pr(additions=20, deletions=5, changed_files=3),
+        files=[
+            _file("src/feature.py", changes=10),
+            _file("tests/test_feature.py", changes=10),
+            _file("docs/feature.md", changes=5),
+        ],
+    )
+    report = analyze(engine_input)
+    assert all(w.code != WARN_CODE_MIXED_CONCERN for w in report.warnings)
+
+
 def test_analyze_downgrades_risky_warning_when_policy_disabled() -> None:
     """\u00a712 `fail_on_risky_paths_without_context: false` -> medium severity."""
 

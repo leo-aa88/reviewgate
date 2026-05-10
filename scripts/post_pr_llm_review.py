@@ -245,6 +245,26 @@ def _normalize_path(path: str) -> str:
 
 
 def _format_inline_body(body: str, severity: str, quoted_line: str) -> str:
+    """Render the markdown body of a single inline review comment.
+
+    Args:
+        body: The reviewer's prose; included verbatim.
+        severity: Model severity (``must`` / ``should`` / ``nit``).
+            Mapped through :data:`_SEVERITY_LABEL` for the bold prefix;
+            unknown severities fall back to the raw value so a contract
+            drift is visible in the rendered output rather than masked.
+        quoted_line: The raw diff line the comment anchors to. Leading
+            ``+``, ``-``, or `` `` markers are stripped (the GitHub UI
+            already shows the diff context, so the marker is noise) and
+            trailing whitespace / newline is removed. Lines longer than
+            :data:`QUOTED_LINE_DISPLAY_LIMIT` are truncated and suffixed
+            with a horizontal-ellipsis to keep review threads readable.
+
+    Returns:
+        A two-paragraph markdown string: ``**<Label>.** <body>`` followed
+        by a fenced quote block of the (cleaned) anchor line.
+    """
+
     label = _SEVERITY_LABEL.get(severity, severity)
     quoted = quoted_line
     if quoted.startswith(("+", "-", " ")):
@@ -327,6 +347,22 @@ def _split_inline_comments(
 
 
 def _format_general_section(items: list[JsonObject], severity: str) -> str | None:
+    """Render one severity-grouped bullet section for the review body.
+
+    Args:
+        items: Combined general-comment list (model ``general_comments``
+            plus any inline entries demoted by
+            :func:`_split_inline_comments`).
+        severity: Severity to filter on (``must`` / ``should`` / ``nit``);
+            entries with any other severity are skipped.
+
+    Returns:
+        A markdown block of the form ``**<Heading>**\\n- <body1>\\n- ...``
+        or ``None`` if no item at that severity has a string body.
+        ``None`` is the sentinel for "drop this section entirely" so the
+        caller does not emit empty headings.
+    """
+
     rows = [
         str(i.get("body"))
         for i in items
@@ -358,6 +394,33 @@ def _has_must_severity(review: JsonObject, demoted: list[JsonObject]) -> bool:
 def _build_review_body(
     review: JsonObject, demoted: list[JsonObject], head_sha: str
 ) -> str:
+    """Assemble the markdown summary body posted to the Reviews API.
+
+    Layout (sections joined with a blank line):
+
+    1. ``**Verdict:** \\`<verdict>\\``` -- the model's top-level verdict,
+       or ``comment`` if the field is missing or non-string.
+    2. The ``summary`` paragraph from the model, when present.
+    3. One severity-grouped bullet section per severity in
+       :data:`_SEVERITY_ORDER` (only severities with at least one item
+       are emitted; see :func:`_format_general_section`). Demoted inline
+       comments are appended to the model's general comments before
+       grouping so misaligned anchors still surface.
+    4. The dedup marker (:func:`_marker`) carrying the head SHA. The
+       marker MUST be present so :func:`_already_reviewed` can find it
+       on the next run.
+
+    Args:
+        review: The validated model output.
+        demoted: Inline comments that failed anchor validation in
+            :func:`_split_inline_comments`.
+        head_sha: Full git SHA of the PR head; embedded in the dedup
+            marker.
+
+    Returns:
+        The assembled markdown body string.
+    """
+
     summary = review.get("summary")
     verdict = review.get("verdict")
     summary_text = summary if isinstance(summary, str) else ""
@@ -416,6 +479,34 @@ def _post_pr_review(
     event: str,
     comments: list[JsonObject],
 ) -> None:
+    """POST a pull-request review to the GitHub Reviews API.
+
+    Args:
+        owner: Repository owner login.
+        repo: Repository name.
+        pr_number: Pull request number on ``owner/repo``.
+        token: GitHub bearer token with ``pull-requests: write`` scope.
+        head_sha: Full SHA of the commit the review applies to. Sent
+            as ``commit_id`` so the review is anchored to a specific
+            head and cannot be misattributed if the PR is force-pushed
+            mid-review.
+        body: Markdown body of the review (see :func:`_build_review_body`).
+        event: Reviews API event verb. Must be one of
+            :data:`_ALLOWED_REVIEW_EVENTS`; any other value is rejected
+            locally to avoid an opaque GitHub 422 mid-run and to
+            prevent a bot ``APPROVE`` from satisfying branch
+            protection.
+        comments: Inline review comments already validated by
+            :func:`_split_inline_comments`. Each entry must carry
+            ``path``, ``line``, ``side`` (``"RIGHT"``), and ``body``.
+
+    Raises:
+        RuntimeError: If ``event`` is not in
+            :data:`_ALLOWED_REVIEW_EVENTS`. HTTP-level failures from
+            the Reviews POST propagate from :func:`_http_json` as
+            ``RuntimeError`` with the GitHub response detail attached.
+    """
+
     if event not in _ALLOWED_REVIEW_EVENTS:
         raise RuntimeError(
             f"Refusing to post PR review with event={event!r}; "

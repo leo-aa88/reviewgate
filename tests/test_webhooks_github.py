@@ -25,6 +25,12 @@ _PR_OPENED_BODY = (
     b'"installation":{"id":1111},"repository":{"id":2222}}'
 )
 
+_PR_SYNCHRONIZE_BODY = (
+    b'{"action":"synchronize","number":1,'
+    b'"installation":{"id":1111},'
+    b'"repository":{"id":2222,"name":"reviewgate","owner":{"login":"leo-aa88"}}}'
+)
+
 
 @pytest.fixture(autouse=True)
 def _stub_github_webhook_delivery_claim(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -690,6 +696,76 @@ def test_github_webhook_pull_request_when_enqueue_blocked_returns_202(
                         },
                     )
     assert response.status_code == 202
+    send.assert_not_called()
+
+
+def test_github_webhook_synchronize_debounce_skips_enqueue_when_coalesced(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Issue #45: coalesced ``synchronize`` returns **202** without queueing."""
+
+    monkeypatch.setenv("REVIEWGATE_GITHUB_WEBHOOK_SECRET", "s")
+    monkeypatch.setenv("REVIEWGATE_REDIS_URL", "redis://127.0.0.1:6379/0")
+    body = _PR_SYNCHRONIZE_BODY
+    with patch.object(
+        github_webhook_module,
+        "synchronize_debounce_allows_enqueue",
+        return_value=False,
+    ):
+        with patch(
+            "reviewgate.app.analysis.broker_install.RedisBroker",
+            lambda **_: StubBroker(),
+        ):
+            with patch(
+                "reviewgate.app.analysis.jobs.run_pr_analysis_stub.send",
+            ) as send:
+                with TestClient(create_app()) as client:
+                    response = client.post(
+                        "/webhooks/github",
+                        content=body,
+                        headers={
+                            "x-hub-signature-256": _signature(body, "s"),
+                            "x-github-delivery": "debounce-1",
+                            "x-github-event": "pull_request",
+                        },
+                    )
+    assert response.status_code == 202
+    send.assert_not_called()
+
+
+def test_github_webhook_synchronize_debounce_redis_error_returns_503(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Issue #45: Redis failures during debounce must not enqueue."""
+
+    import redis.exceptions
+
+    monkeypatch.setenv("REVIEWGATE_GITHUB_WEBHOOK_SECRET", "s")
+    monkeypatch.setenv("REVIEWGATE_REDIS_URL", "redis://127.0.0.1:6379/0")
+    body = _PR_SYNCHRONIZE_BODY
+
+    def _boom(*_a: object, **_k: object) -> bool:
+        raise redis.exceptions.ConnectionError("simulated")
+
+    with patch.object(
+        github_webhook_module,
+        "synchronize_debounce_allows_enqueue",
+        side_effect=_boom,
+    ):
+        with patch(
+            "reviewgate.app.analysis.jobs.run_pr_analysis_stub.send",
+        ) as send:
+            with TestClient(create_app()) as client:
+                response = client.post(
+                    "/webhooks/github",
+                    content=body,
+                    headers={
+                        "x-hub-signature-256": _signature(body, "s"),
+                        "x-github-delivery": "debounce-redis-err",
+                        "x-github-event": "pull_request",
+                    },
+                )
+    assert response.status_code == 503
     send.assert_not_called()
 
 

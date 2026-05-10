@@ -71,6 +71,7 @@ jobs:
           alembic upgrade head
           pytest -q tests/test_storage_schema_parity.py
           alembic downgrade base
+          pytest -q tests/test_storage_schema_post_downgrade.py
 
   build:
     name: build sdist + wheel

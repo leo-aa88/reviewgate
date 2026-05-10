@@ -125,6 +125,28 @@ def test_unknown_fail_on_value_rejected_by_argparse(
     assert "invalid choice" in capsys.readouterr().err
 
 
+def test_unknown_mode_value_rejected_by_argparse(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    payload_path = _write(_PASS_INPUT, tmp_path / "engine.json")
+    with pytest.raises(SystemExit) as exc:
+        run_core.main(["--input", str(payload_path), "--mode", "loud"])
+    assert exc.value.code == 2
+    assert "invalid choice" in capsys.readouterr().err
+
+
+def test_unknown_post_comment_value_rejected_by_argparse(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    payload_path = _write(_PASS_INPUT, tmp_path / "engine.json")
+    with pytest.raises(SystemExit) as exc:
+        run_core.main(["--input", str(payload_path), "--post-comment", "yes"])
+    assert exc.value.code == 2
+    assert "invalid choice" in capsys.readouterr().err
+
+
 # --- engine input handling ------------------------------------------
 
 
@@ -319,6 +341,11 @@ def test_main_returns_one_when_verdict_meets_fail_on(
     Pairs the hardest §24.2 fixture with the documented default
     (``--fail-on FAIL``) so a regression that lets a FAIL verdict
     exit 0 is caught here as well as in the unit tests above.
+
+    `--mode action` is explicit because the default `auto` resolver
+    sees `mode: app` (no `.reviewgate.yml` -> §12 default) and would
+    suppress `fail-on` per §14.1; this test cares about the
+    `fail-on` ladder, not about coexistence.
     """
 
     payload_path = _write(_FAIL_INPUT, tmp_path / "engine.json")
@@ -330,6 +357,10 @@ def test_main_returns_one_when_verdict_meets_fail_on(
             str(tmp_path),
             "--fail-on",
             "FAIL",
+            "--mode",
+            "action",
+            "--post-comment",
+            "false",
         ]
     )
     assert code == 1
@@ -341,7 +372,18 @@ def test_main_returns_zero_for_pass_under_default_fail_on(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     payload_path = _write(_PASS_INPUT, tmp_path / "engine.json")
-    code = run_core.main(["--input", str(payload_path), "--workspace", str(tmp_path)])
+    code = run_core.main(
+        [
+            "--input",
+            str(payload_path),
+            "--workspace",
+            str(tmp_path),
+            "--mode",
+            "action",
+            "--post-comment",
+            "false",
+        ]
+    )
     assert code == 0
     report = json.loads(capsys.readouterr().out)
     assert report["reviewability"] == "PASS"
@@ -361,6 +403,10 @@ def test_never_fail_on_keeps_exit_zero_even_for_fail_verdict(
             str(tmp_path),
             "--fail-on",
             "never",
+            "--mode",
+            "action",
+            "--post-comment",
+            "false",
         ]
     )
     assert code == 0
@@ -427,6 +473,202 @@ def test_summary_skipped_silently_when_no_github_step_summary(
     assert code == 0
     captured = capsys.readouterr()
     assert "ReviewGate" in captured.err
+
+
+def test_quiet_mode_keeps_exit_zero_and_skips_comment(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`--mode quiet` must ignore `--fail-on` and skip the upsert.
+
+    Quiet mode is the §14.1 escape hatch when the hosted App owns
+    the surface; even a substantive FAIL fixture has to exit 0,
+    and ``post_comment.upsert_comment`` must not be called even
+    indirectly. Patching the upsert helper to raise gives us the
+    second guarantee with no network involvement.
+    """
+
+    from reviewgate_action import post_comment as pc
+
+    def _boom(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("upsert must not be called in quiet mode")
+
+    monkeypatch.setattr(pc, "upsert_comment", _boom)
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+
+    payload_path = _write(_FAIL_INPUT, tmp_path / "engine.json")
+    code = run_core.main(
+        [
+            "--input",
+            str(payload_path),
+            "--workspace",
+            str(tmp_path),
+            "--fail-on",
+            "FAIL",
+            "--mode",
+            "quiet",
+        ]
+    )
+    assert code == 0
+    captured = capsys.readouterr()
+    assert "coexistence -- Action `mode: quiet`" in captured.err
+
+
+def test_auto_mode_with_default_config_stays_quiet(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The §14.1 default: no `.reviewgate.yml` -> `mode: app` -> quiet.
+
+    The Action installed on a fresh repo with no config must not
+    post a comment by default; the hosted App is the canonical
+    surface unless the workflow author explicitly opts in.
+    """
+
+    from reviewgate_action import post_comment as pc
+
+    monkeypatch.setattr(
+        pc,
+        "upsert_comment",
+        lambda **_kwargs: pytest.fail("auto+app must not call upsert"),
+    )
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+
+    payload_path = _write(_PASS_INPUT, tmp_path / "engine.json")
+    code = run_core.main(
+        ["--input", str(payload_path), "--workspace", str(tmp_path)]
+    )
+    assert code == 0
+    captured = capsys.readouterr()
+    assert "coexistence -- Action `mode: auto`" in captured.err
+    assert "mode: app" in captured.err
+
+
+def test_action_mode_invokes_upsert_with_resolved_repo(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """`--mode action` triggers the upsert with CLI-provided repo + PR.
+
+    Pins that ``--repo`` and ``--pull-number`` are honoured when the
+    GitHub Action env vars are absent (e.g. local invocations).
+    """
+
+    from reviewgate_action import post_comment as pc
+
+    captured_kwargs: dict[str, Any] = {}
+
+    def _record(**kwargs: Any) -> tuple[str, int]:
+        captured_kwargs.update(kwargs)
+        return "created", 1234
+
+    monkeypatch.setenv("GITHUB_TOKEN", "ghp_test")
+    monkeypatch.delenv("GITHUB_REPOSITORY", raising=False)
+    monkeypatch.delenv("GITHUB_EVENT_PATH", raising=False)
+    monkeypatch.setattr(pc, "upsert_comment", _record)
+
+    payload_path = _write(_PASS_INPUT, tmp_path / "engine.json")
+    code = run_core.main(
+        [
+            "--input",
+            str(payload_path),
+            "--workspace",
+            str(tmp_path),
+            "--mode",
+            "action",
+            "--repo",
+            "leo-aa88/reviewgate-core",
+            "--pull-number",
+            "42",
+        ]
+    )
+    assert code == 0
+    assert captured_kwargs["owner"] == "leo-aa88"
+    assert captured_kwargs["repo"] == "reviewgate-core"
+    assert captured_kwargs["pull_number"] == 42
+    assert captured_kwargs["token"] == "ghp_test"
+    err = capsys.readouterr().err
+    assert "created ReviewGate comment id=1234" in err
+
+
+def test_action_mode_skips_upsert_when_post_comment_false(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`--post-comment false` is an absolute opt-out from posting."""
+
+    from reviewgate_action import post_comment as pc
+
+    monkeypatch.setattr(
+        pc,
+        "upsert_comment",
+        lambda **_kwargs: pytest.fail("post-comment=false must not post"),
+    )
+    monkeypatch.setenv("GITHUB_TOKEN", "ghp_test")
+    payload_path = _write(_PASS_INPUT, tmp_path / "engine.json")
+    code = run_core.main(
+        [
+            "--input",
+            str(payload_path),
+            "--workspace",
+            str(tmp_path),
+            "--mode",
+            "action",
+            "--post-comment",
+            "false",
+            "--repo",
+            "o/r",
+            "--pull-number",
+            "1",
+        ]
+    )
+    assert code == 0
+
+
+def test_action_mode_swallows_upsert_failure_without_breaking_run(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A comment-upsert failure must not mask the engine verdict.
+
+    The §14 acceptance is that the workflow exit code reflects the
+    review verdict. A `403 Resource not accessible` from the
+    Issues API (e.g. a token without `pull-requests: write`) must
+    log the failure but keep the run on its `fail-on` exit code.
+    """
+
+    from reviewgate_action import post_comment as pc
+
+    def _boom(**_kwargs: Any) -> tuple[str, int]:
+        raise RuntimeError("HTTP 403 Forbidden")
+
+    monkeypatch.setattr(pc, "upsert_comment", _boom)
+    monkeypatch.setenv("GITHUB_TOKEN", "ghp_test")
+    payload_path = _write(_FAIL_INPUT, tmp_path / "engine.json")
+    code = run_core.main(
+        [
+            "--input",
+            str(payload_path),
+            "--workspace",
+            str(tmp_path),
+            "--mode",
+            "action",
+            "--fail-on",
+            "FAIL",
+            "--repo",
+            "o/r",
+            "--pull-number",
+            "1",
+        ]
+    )
+    assert code == 1
+    err = capsys.readouterr().err
+    assert "comment upsert failed" in err
+    assert "HTTP 403 Forbidden" in err
 
 
 def test_render_summary_includes_warning_code_and_severity() -> None:

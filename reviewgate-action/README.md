@@ -2,7 +2,7 @@
 
 GitHub Action wrapper around [`reviewgate-core`](../) that runs the deterministic reviewability engine on a pull request and (optionally, once #26 lands) posts the §13 summary comment. See `docs/DESIGN.md` §14 for the full design.
 
-> **Status: runtime preview (issues #24 + #25 landed; #26 pending).** The Action fetches PR metadata, loads `.reviewgate.yml`, runs the deterministic engine, prints the §10.2 report, and applies the §14 `fail-on` policy. The optional PR-comment upsert and `mode` coexistence skip behaviour land in #26; the `post-comment` and `mode` inputs are accepted and validated today but are otherwise no-ops. Pinning the Action as a required status check is now safe: the engine result drives the workflow exit code via `fail-on`.
+> **Status: runtime complete (issues #24, #25, #26 landed).** The Action fetches PR metadata, loads `.reviewgate.yml`, runs the deterministic engine, prints the §10.2 report, applies the §14 `fail-on` policy, and (when §14.1 coexistence allows) upserts the §13 PR comment. By default (no `.reviewgate.yml` -> `mode: app`) the Action runs the engine for the workflow log + summary but stays quiet on the PR surface so the hosted App owns posting; switch to `mode: action` (per-workflow input or in `.reviewgate.yml`) to let the Action post.
 
 ## Implementation status
 
@@ -10,7 +10,7 @@ GitHub Action wrapper around [`reviewgate-core`](../) that runs the deterministi
 | ---- | ------ | ----- | ----- |
 | Fetch PR metadata + paginated files | [`reviewgate_action.fetch_pr`](src/reviewgate_action/fetch_pr.py) | #24 | done |
 | Load `.reviewgate.yml`, run core, apply `fail-on` | [`reviewgate_action.run_core`](src/reviewgate_action/run_core.py) | #25 | done |
-| Mode coexistence + PR comment upsert | (TBD) | #26 | pending |
+| §14.1 mode coexistence + §13 PR-comment upsert | [`reviewgate_action.coexistence`](src/reviewgate_action/coexistence.py) + [`reviewgate_action.post_comment`](src/reviewgate_action/post_comment.py) | #26 | done |
 
 Local invocation outside Actions:
 
@@ -59,8 +59,8 @@ When this monorepo is split per `docs/DESIGN.md` §14 ("Repository: `github.com/
 | ---- | -------- | ------- | ----------- |
 | `github-token` | yes | — | Token used to fetch PR metadata and (when `post-comment: true`, in #26) post the summary comment. Needs `pull-requests: read` and `contents: read` (`reviewgate_action.fetch_pr` calls `GET /repos/{owner}/{repo}/pulls/{n}` and the paginated `/files` endpoint); `pull-requests: write` will additionally be required for the comment-upsert path landing in #26. |
 | `fail-on` | no | `FAIL` | Verdict at or above which the workflow exits non-zero. One of `PASS`, `WARN`, `FAIL`, `never`. `never` always exits 0. |
-| `post-comment` | no | `"true"` | Whether to upsert the §13 ReviewGate marker comment on the PR. Accepted today but no-op until #26 lands the comment-upsert step. |
-| `mode` | no | `auto` | Coexistence with the hosted ReviewGate App (§14.1). One of `auto`, `action`, `quiet`. `auto` defers to `.reviewgate.yml`. The skip behaviour itself lands in #26. |
+| `post-comment` | no | `"true"` | Whether to upsert the §13 ReviewGate marker comment on the PR. Honoured only when §14.1 coexistence permits the Action to post (i.e. `mode: action`, or `mode: auto` + `.reviewgate.yml` `mode: action` / `both`). Set `false` to keep the Action quiet on the PR surface even when coexistence would allow posting. |
+| `mode` | no | `auto` | Coexistence with the hosted ReviewGate App (§14.1). One of `auto`, `action`, `quiet`. `auto` defers to `.reviewgate.yml` (default `mode: app` -> Action stays quiet). `action` makes the Action own the surface regardless of `.reviewgate.yml`. `quiet` mutes the Action entirely (no comment, `fail-on` is ignored, exit 0). |
 | `python-version` | no | `3.12` | Python version pin handed to `actions/setup-python`. The §15 stack requires 3.12+; override only to bump the patch release. |
 | `working-directory` | no | `""` | Workspace root used to look up `.reviewgate.yml`. Defaults to `$GITHUB_WORKSPACE`. Override only for non-standard checkouts (e.g. monorepo subdirectory pinned via `actions/checkout`'s `path:` input). |
 
@@ -79,10 +79,17 @@ When this monorepo is split per `docs/DESIGN.md` §14 ("Repository: `github.com/
 mode: app # app | action | both
 ```
 
-| `.reviewgate.yml` `mode` | Action default behaviour (after #26) |
-| ------------------------ | ------------------------------------ |
-| `app` | Action stays quiet (skips comment and status check). |
-| `action` | Action posts comment and status check; hosted App skips. |
-| `both` | Both run; the Action namespaces its status check name to avoid collision. |
+| `.reviewgate.yml` `mode` | Action default behaviour |
+| ------------------------ | ------------------------ |
+| `app` (default per §12) | Action stays quiet (no comment, `fail-on` ignored). The hosted App owns the surface. |
+| `action` | Action posts the §13 comment; hosted App is expected to skip on its side. |
+| `both` | Both surfaces post. The §13 marker keeps each comment distinct so neither edits the other. |
 
-The Action's `mode` input overrides the YAML when set explicitly to `action` or `quiet`. `mode: auto` (the default) is the only value that defers to `.reviewgate.yml`. The skip-on-`mode: app` behaviour itself lands in #26; until then the Action runs the engine regardless of `mode`.
+The Action's `mode` input overrides the YAML when set explicitly to `action` or `quiet`. `mode: auto` (the default) is the only value that defers to `.reviewgate.yml`.
+
+| Action `mode` | `.reviewgate.yml` `mode` | Decision |
+| ------------- | ------------------------ | -------- |
+| `quiet` | (any) | No comment, `fail-on` ignored. The Action exits 0 regardless of verdict; the workflow log + `$GITHUB_STEP_SUMMARY` still carry the report. |
+| `action` | (any) | Action owns posting. `post-comment` and `fail-on` apply normally. |
+| `auto` | `app` | Hosted App posts. The Action stays quiet (no comment, `fail-on` ignored). |
+| `auto` | `action` or `both` | Action posts. `post-comment` and `fail-on` apply normally. |

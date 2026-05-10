@@ -400,6 +400,73 @@ def test_parse_diff_skips_hunk_when_no_current_path() -> None:
     assert parse_diff_right_side(diff) == {}
 
 
+# ---------------------------------------------------------------------------
+# _already_reviewed -- dedup across both issue-comment and review sources
+# ---------------------------------------------------------------------------
+
+
+def test_already_reviewed_finds_marker_in_review_body() -> None:
+    """Regression for the dedup path that scans the Reviews API.
+
+    Older revisions of this script posted the head-SHA marker as an
+    issue comment; the current revision posts it as a review summary.
+    Dedup must succeed against either source so we do not spam
+    duplicate reviews on the same head SHA.
+    """
+
+    head_sha = "deadbeef0123456"
+    marker = ppr._marker(head_sha)
+
+    assert (
+        ppr._already_reviewed(
+            issue_comments=[],
+            reviews=[{"body": f"Some prose {marker} more prose"}],
+            head_sha=head_sha,
+        )
+        is True
+    )
+
+
+def test_already_reviewed_finds_marker_in_issue_comment_body() -> None:
+    head_sha = "deadbeef0123456"
+    marker = ppr._marker(head_sha)
+
+    assert (
+        ppr._already_reviewed(
+            issue_comments=[{"body": marker}],
+            reviews=[],
+            head_sha=head_sha,
+        )
+        is True
+    )
+
+
+def test_already_reviewed_returns_false_when_marker_absent() -> None:
+    head_sha = "deadbeef0123456"
+    other = ppr._marker("cafebabe9999999")
+
+    assert (
+        ppr._already_reviewed(
+            issue_comments=[{"body": "no marker here"}],
+            reviews=[{"body": other}],
+            head_sha=head_sha,
+        )
+        is False
+    )
+
+
+def test_already_reviewed_ignores_non_string_bodies() -> None:
+    head_sha = "deadbeef0123456"
+    assert (
+        ppr._already_reviewed(
+            issue_comments=[{"body": None}, {}],
+            reviews=[{"body": 42}, {"body": ["x"]}],
+            head_sha=head_sha,
+        )
+        is False
+    )
+
+
 def test_post_pr_review_accepts_allowlisted_events(monkeypatch: pytest.MonkeyPatch) -> None:
     called: list[ppr.JsonObject] = []
 

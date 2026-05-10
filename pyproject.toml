@@ -15,6 +15,10 @@ dependencies = [
     "PyYAML>=6.0",
 ]
 
+[project.scripts]
+# Local-fixture CLI per DESIGN.md §5.1 / §25 M1; see src/reviewgate/core/cli.py.
+reviewgate-core = "reviewgate.core.cli:main"
+
 [project.optional-dependencies]
 # `types-PyYAML` is a stub-only package: PyYAML 6.x ships no inline type
 # information, so consumers running `mypy --strict` (or pyright) need the

@@ -1,6 +1,6 @@
 """Deterministic reviewability engine (`reviewgate-core` boundary per docs/DESIGN.md §4.1)."""
 
-from . import aggregate, categorizer, cli, config, heuristics, report, schemas
+from . import aggregate, categorizer, cli, config, engine, heuristics, report, schemas
 from .aggregate import baseline_reviewability
 from .config import (
     ConfigLoadResult,
@@ -9,6 +9,7 @@ from .config import (
     StatusFailOn,
     load_config,
 )
+from .engine import analyze
 from .schemas import (
     ChangedFile,
     EngineInput,
@@ -40,10 +41,12 @@ __all__ = [
     "StatusFailOn",
     "WarningSeverity",
     "aggregate",
+    "analyze",
     "baseline_reviewability",
     "categorizer",
     "cli",
     "config",
+    "engine",
     "heuristics",
     "load_config",
     "report",

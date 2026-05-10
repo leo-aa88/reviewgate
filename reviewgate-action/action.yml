@@ -1,0 +1,143 @@
+# reviewgate-action: GitHub Action wrapper around reviewgate-core (DESIGN.md §14).
+#
+# This file is the Action's public contract. Inputs and their default
+# values must stay in sync with §14 of `docs/DESIGN.md`; the §24.4
+# manual QA checklist (Milestone 8) verifies the documented snippet.
+#
+# Usage (verbatim from §14):
+#
+#     - uses: leo-aa88/reviewgate-core/reviewgate-action@v1
+#       with:
+#         github-token: ${{ secrets.GITHUB_TOKEN }}
+#         fail-on: FAIL
+#         post-comment: true
+#
+# Note on the `uses:` path: GitHub Actions resolves
+# ``{owner}/{repo}/{path}@{ref}`` as the subdirectory action at
+# ``{path}/action.yml`` in ``{owner}/{repo}``. See the official
+# "Using actions" docs ("Referencing an action in the same
+# repository where a workflow file uses the action" and "Referencing
+# an action in a different repository"). This Action's `action.yml`
+# lives at ``reviewgate-action/action.yml``, so the documented
+# ``leo-aa88/reviewgate-core/reviewgate-action@v1`` form is the
+# correct subdirectory reference -- it is not a `{owner}/{repo}@{ref}`
+# typo. The form survives the future split into the standalone
+# `reviewgate/reviewgate-action` repository because the `<path>`
+# segment simply collapses out.
+#
+# The actual fetch / core / comment / fail-on logic lands in the
+# follow-on issues (#24, #25, #26). This scaffold validates the inputs
+# and then **fails closed** with `::error::` + `exit 1` so a workflow
+# that names this Action as a required status check cannot silently
+# mark a PR mergeable while the §14 review pipeline is still missing.
+# The only successful exit path is the input-validation error path
+# (exit 2), which still proves wrong inputs are caught early.
+
+name: ReviewGate
+description: >-
+  Run the reviewgate-core deterministic reviewability engine on a pull
+  request. Optionally posts a summary comment and fails the workflow
+  when the configured threshold is reached. See DESIGN.md §14.
+author: ReviewGate contributors
+branding:
+  icon: check-square
+  color: blue
+
+inputs:
+  github-token:
+    description: >-
+      GitHub token used to fetch PR metadata and (when `post-comment`
+      is true) post the summary comment. The token needs at minimum
+      `pull-requests: read`; granting `pull-requests: write` is required
+      for `post-comment: true`. Required; no default per §14.
+    required: true
+
+  fail-on:
+    description: >-
+      Reviewability verdict (or stronger) at which the workflow exits
+      non-zero. One of `PASS`, `WARN`, `FAIL`, or `never`. Default
+      `FAIL` per §14.
+    required: false
+    default: FAIL
+
+  post-comment:
+    description: >-
+      When `true`, post or upsert the §13 ReviewGate marker comment on
+      the PR. When `false`, the Action only writes the report to the
+      job summary (the `reviewability` and `report-json` step outputs
+      arrive together with the runtime in #25; the scaffold does not
+      emit any step outputs yet). Default `true` per §14.
+    required: false
+    default: "true"
+
+  mode:
+    description: >-
+      Coexistence mode with the hosted ReviewGate App (§14.1). One of
+      `auto`, `action`, or `quiet`. `auto` (the default per §14)
+      defers to `.reviewgate.yml` and stays quiet when the file pins
+      `mode: app`.
+    required: false
+    default: auto
+
+# Note on `outputs`: the §14 design intends two public outputs --
+# `reviewability` (the §10.13 verdict) and `report-json` (the §10.2
+# report). They are intentionally NOT declared on this scaffold
+# because composite outputs must reference a real step output, and
+# this scaffold cannot yet produce a verdict or a report. Wiring the
+# two outputs lands together with the core runtime in #25 so that
+# every consumer that copy-pastes `fromJSON(steps.x.outputs.report-json)`
+# always receives valid JSON. See `reviewgate-action/README.md` for
+# the planned output contract.
+
+# §14 places the runtime behind `runs.using: composite` so the Action
+# stays in a single repository (no Docker image, no Node packaging).
+# This scaffold ships a placeholder step that validates inputs only;
+# the real fetch + core + comment pipeline is implemented incrementally
+# in issues #24 (PR fetch), #25 (core invocation + fail-on), and #26
+# (mode coexistence + comment upsert).
+runs:
+  using: composite
+  steps:
+    - id: run
+      name: ReviewGate (scaffold -- fails closed until #24-#26)
+      shell: bash
+      env:
+        REVIEWGATE_FAIL_ON: ${{ inputs.fail-on }}
+        REVIEWGATE_POST_COMMENT: ${{ inputs.post-comment }}
+        REVIEWGATE_MODE: ${{ inputs.mode }}
+      run: |
+        set -euo pipefail
+
+        case "${REVIEWGATE_FAIL_ON}" in
+          PASS|WARN|FAIL|never) ;;
+          *)
+            echo "::error::fail-on must be one of PASS, WARN, FAIL, never (got: ${REVIEWGATE_FAIL_ON})"
+            exit 2
+            ;;
+        esac
+
+        case "${REVIEWGATE_POST_COMMENT}" in
+          true|false) ;;
+          *)
+            echo "::error::post-comment must be 'true' or 'false' (got: ${REVIEWGATE_POST_COMMENT})"
+            exit 2
+            ;;
+        esac
+
+        case "${REVIEWGATE_MODE}" in
+          auto|action|quiet) ;;
+          *)
+            echo "::error::mode must be one of auto, action, quiet (got: ${REVIEWGATE_MODE})"
+            exit 2
+            ;;
+        esac
+
+        # Fail-closed posture: the scaffold cannot run the §14 review
+        # pipeline yet (PR fetch, core invocation, comment, fail-on
+        # policy land in #24-#26). Exiting non-zero here ensures a
+        # workflow that names this Action as a required check cannot
+        # silently report success, which would bypass branch
+        # protection. The READMEs both warn that the scaffold is not
+        # runnable until the runtime PRs land.
+        echo "::error::reviewgate-action scaffold is not runnable yet (issue #23). Inputs validate correctly (fail-on=${REVIEWGATE_FAIL_ON}, post-comment=${REVIEWGATE_POST_COMMENT}, mode=${REVIEWGATE_MODE}); the review runtime (PR fetch, core invocation, fail-on policy, comment) lands in issues #24-#26. Do not pin this Action as a required status check until those issues close."
+        exit 1

@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Question or design discussion
+    url: https://github.com/leo-aa88/reviewgate/discussions
+    about: Use GitHub Discussions for open-ended questions, design proposals, or "is this in scope?" — not bug reports.
+  - name: Security vulnerability
+    url: https://github.com/leo-aa88/reviewgate/security/advisories/new
+    about: Report privately via GitHub Security Advisories. Do not open a public issue. See SECURITY.md.
+  - name: Hosted ReviewGate App / private beta
+    url: https://github.com/leo-aa88/reviewgate/blob/main/docs/ONBOARDING.md
+    about: Read the private-beta onboarding guide before requesting access.

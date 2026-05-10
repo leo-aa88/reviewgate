@@ -1,0 +1,80 @@
+name: Feature request
+description: Propose a new heuristic, threshold, configuration knob, or capability.
+title: "feat: <short description>"
+labels: ["enhancement", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ReviewGate has a deliberately narrow scope: **PR intake**
+        (size, scope, missing context, risky paths, splitability).
+        See [`docs/DESIGN.md` §3](https://github.com/leo-aa88/reviewgate/blob/main/docs/DESIGN.md)
+        for the "is / is not" list. Requests that drift toward AI code
+        review, security scanning, bug finding, or AI-origin detection
+        will likely be declined.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What user / reviewer pain is this solving?
+      placeholder: |
+        As a reviewer, when I open a PR with X I have to manually do Y
+        before I can review, because the current heuristics miss Z.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed change
+      description: |
+        Sketch the heuristic, threshold, label, or configuration knob.
+        Reference the relevant `docs/DESIGN.md` section if there is one.
+      placeholder: |
+        Add a `risky_paths_without_test_changes` warning in §10.10:
+        if any file matches `risky_paths` and no file is in `test`,
+        emit medium severity.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: What else did you try, and why isn't that enough?
+    validations:
+      required: false
+
+  - type: dropdown
+    id: scope
+    attributes:
+      label: Where would this live?
+      options:
+        - "reviewgate-core (deterministic engine)"
+        - "reviewgate-action (GitHub Action runtime)"
+        - "Hosted App (out of scope for this repo — see DESIGN.md §19)"
+        - ".reviewgate.yml schema"
+        - "Documentation only"
+        - "Not sure"
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: in-scope
+    attributes:
+      label: Scope check
+      description: |
+        ReviewGate evaluates *reviewability*, not code correctness. See
+        `docs/DESIGN.md` §3 ("What ReviewGate is / is not").
+      options:
+        - label: This request is about PR shape, size, scope, missing context, or reviewer burden — not code correctness, security, AI detection, or bug finding.
+          required: true
+
+  - type: checkboxes
+    id: terms
+    attributes:
+      label: Code of Conduct
+      options:
+        - label: I agree to follow this project's [Code of Conduct](https://github.com/leo-aa88/reviewgate/blob/main/CODE_OF_CONDUCT.md).
+          required: true

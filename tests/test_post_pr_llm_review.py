@@ -115,7 +115,7 @@ def test_format_inline_body_falls_back_to_raw_severity_for_unknown_value() -> No
 
 def _entry(
     *,
-    path: str = "src/reviewgate/core/foo.py",
+    path: str = "reviewgate/core/foo.py",
     line: int = 10,
     severity: str = "must",
     body: str = "Replace magic literal.",
@@ -131,25 +131,25 @@ def _entry(
 
 
 def test_split_inline_keeps_anchored_comment_in_valid_bucket() -> None:
-    diff = _diff_index_with("src/reviewgate/core/foo.py", {10, 11})
+    diff = _diff_index_with("reviewgate/core/foo.py", {10, 11})
     valid, demoted = ppr._split_inline_comments([_entry()], diff)
 
     assert demoted == []
     assert len(valid) == 1
-    assert valid[0]["path"] == "src/reviewgate/core/foo.py"
+    assert valid[0]["path"] == "reviewgate/core/foo.py"
     assert valid[0]["line"] == 10
     assert valid[0]["side"] == "RIGHT"
     assert "Replace magic literal." in str(valid[0]["body"])
 
 
 def test_split_inline_demotes_when_line_outside_diff() -> None:
-    diff = _diff_index_with("src/reviewgate/core/foo.py", {11, 12})
+    diff = _diff_index_with("reviewgate/core/foo.py", {11, 12})
     valid, demoted = ppr._split_inline_comments([_entry(line=10)], diff)
 
     assert valid == []
     assert len(demoted) == 1
     assert demoted[0]["severity"] == "must"
-    assert "src/reviewgate/core/foo.py:10" in str(demoted[0]["body"])
+    assert "reviewgate/core/foo.py:10" in str(demoted[0]["body"])
     assert "anchor not found in diff" in str(demoted[0]["body"])
 
 
@@ -162,13 +162,13 @@ def test_split_inline_demotes_when_path_outside_diff() -> None:
 
 
 def test_split_inline_normalizes_a_b_path_prefix_before_anchor_check() -> None:
-    diff = _diff_index_with("src/reviewgate/core/foo.py", {10})
+    diff = _diff_index_with("reviewgate/core/foo.py", {10})
     valid, _ = ppr._split_inline_comments(
-        [_entry(path="b/src/reviewgate/core/foo.py")], diff
+        [_entry(path="b/reviewgate/core/foo.py")], diff
     )
 
     assert len(valid) == 1
-    assert valid[0]["path"] == "src/reviewgate/core/foo.py"
+    assert valid[0]["path"] == "reviewgate/core/foo.py"
 
 
 @pytest.mark.parametrize(

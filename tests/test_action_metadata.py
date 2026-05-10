@@ -29,8 +29,12 @@ import pytest
 import yaml
 
 _REPO_ROOT: Final[Path] = Path(__file__).resolve().parent.parent
-_ACTION_YML: Final[Path] = _REPO_ROOT / "reviewgate-action" / "action.yml"
-_ACTION_README: Final[Path] = _REPO_ROOT / "reviewgate-action" / "README.md"
+_ACTION_YML: Final[Path] = (
+    _REPO_ROOT / "src" / "reviewgate_action" / "action.yml"
+)
+_ACTION_README: Final[Path] = (
+    _REPO_ROOT / "src" / "reviewgate_action" / "README.md"
+)
 _TOP_README: Final[Path] = _REPO_ROOT / "README.md"
 
 # §14 inputs and their default values. Pinned here so a typo or a
@@ -55,7 +59,7 @@ _DECLARED_OUTPUTS: Final[frozenset[str]] = frozenset({"reviewability", "report-j
 
 @pytest.fixture(scope="module")
 def action_metadata() -> dict[str, Any]:
-    """Parse `reviewgate-action/action.yml` once per test module."""
+    """Parse `src/reviewgate_action/action.yml` once per test module."""
 
     raw = _ACTION_YML.read_text(encoding="utf-8")
     parsed = yaml.safe_load(raw)
@@ -69,7 +73,7 @@ def test_action_yml_exists_at_documented_path() -> None:
     """§14 documents the consumer path; the file has to exist there."""
 
     assert _ACTION_YML.is_file(), (
-        f"reviewgate-action/action.yml is missing; consumers reference "
+        f"src/reviewgate_action/action.yml is missing; consumers reference "
         f"{_ACTION_YML.relative_to(_REPO_ROOT)}"
     )
 
@@ -237,14 +241,14 @@ def test_top_level_readme_includes_design_doc_snippet() -> None:
     The ``uses:`` value uses GitHub Actions' documented
     ``{owner}/{repo}/{path}@{ref}`` form so consumers can reference
     the Action at its real subdirectory location
-    (``reviewgate-action/action.yml``). This is *not* a typo of the
+    (``src/reviewgate_action/action.yml``). This is *not* a typo of the
     ``{owner}/{repo}@{ref}`` form -- the official "Using actions"
     docs cover both shapes, and the path form survives the future
     split into the standalone `reviewgate/reviewgate-action` repo.
     """
 
     readme = _TOP_README.read_text(encoding="utf-8")
-    assert "leo-aa88/reviewgate-core/reviewgate-action@v1" in readme, (
+    assert "leo-aa88/reviewgate/src/reviewgate_action@v1" in readme, (
         "Top-level README must reference the Action at its subdirectory "
         "consumer path (DESIGN.md §14, GitHub Actions "
         "{owner}/{repo}/{path}@{ref} form)"
@@ -279,7 +283,7 @@ def test_action_subdirectory_path_in_uses_resolves_to_real_action_yml() -> None:
 
     Concretely: extract every ``- uses:`` value inside a fenced
     ```yaml block in the top-level README, find the
-    ``leo-aa88/reviewgate-core/<path>@<ref>`` reference, and assert
+    ``leo-aa88/reviewgate/<path>@<ref>`` reference, and assert
     ``<repo>/<path>/action.yml`` exists on disk. Catches the
     foot-gun of documenting a path that does not match the actual
     repository layout.
@@ -289,7 +293,7 @@ def test_action_subdirectory_path_in_uses_resolves_to_real_action_yml() -> None:
     refs = _uses_refs_in_yaml_blocks(readme)
     assert refs, "README must contain at least one fenced YAML `uses:` line"
 
-    repo_prefix = "leo-aa88/reviewgate-core/"
+    repo_prefix = "leo-aa88/reviewgate/"
     matching = [r for r in refs if r.startswith(repo_prefix)]
     assert matching, (
         f"README's fenced YAML must reference the Action via "
@@ -473,9 +477,9 @@ def test_action_readme_documents_every_input_and_output() -> None:
     readme = _ACTION_README.read_text(encoding="utf-8")
     for name in _ALL_INPUTS:
         assert f"`{name}`" in readme, (
-            f"reviewgate-action/README.md must document input `{name}`"
+            f"src/reviewgate_action/README.md must document input `{name}`"
         )
     for name in _DECLARED_OUTPUTS:
         assert f"`{name}`" in readme, (
-            f"reviewgate-action/README.md must document output `{name}`"
+            f"src/reviewgate_action/README.md must document output `{name}`"
         )

@@ -1,6 +1,6 @@
 # reviewgate-action
 
-GitHub Action wrapper around [`reviewgate-core`](../) that runs the deterministic reviewability engine on a pull request and (optionally, once #26 lands) posts the §13 summary comment. See `docs/DESIGN.md` §14 for the full design.
+GitHub Action wrapper around the deterministic engine ([`src/reviewgate/core/`](../reviewgate/core/); PyPI package `reviewgate`, §4.1) that runs the reviewability analysis on a pull request and, when §14.1 coexistence allows, posts the §13 summary comment. See `docs/DESIGN.md` §14 for the full design.
 
 > **Status: runtime complete (issues #24, #25, #26 landed).** The Action fetches PR metadata, loads `.reviewgate.yml`, runs the deterministic engine, prints the §10.2 report, applies the §14 `fail-on` policy, and (when §14.1 coexistence allows) upserts the §13 PR comment. By default (no `.reviewgate.yml` -> `mode: app`) the Action runs the engine for the workflow log + summary but stays quiet on the PR surface so the hosted App owns posting; switch to `mode: action` (per-workflow input or in `.reviewgate.yml`) to let the Action post.
 
@@ -8,9 +8,9 @@ GitHub Action wrapper around [`reviewgate-core`](../) that runs the deterministi
 
 | Step | Module | Issue | Lands |
 | ---- | ------ | ----- | ----- |
-| Fetch PR metadata + paginated files | [`reviewgate_action.fetch_pr`](src/reviewgate_action/fetch_pr.py) | #24 | done |
-| Load `.reviewgate.yml`, run core, apply `fail-on` | [`reviewgate_action.run_core`](src/reviewgate_action/run_core.py) | #25 | done |
-| §14.1 mode coexistence + §13 PR-comment upsert | [`reviewgate_action.coexistence`](src/reviewgate_action/coexistence.py) + [`reviewgate_action.post_comment`](src/reviewgate_action/post_comment.py) | #26 | done |
+| Fetch PR metadata + paginated files | [`reviewgate_action.fetch_pr`](reviewgate_action/fetch_pr.py) | #24 | done |
+| Load `.reviewgate.yml`, run core, apply `fail-on` | [`reviewgate_action.run_core`](reviewgate_action/run_core.py) | #25 | done |
+| §14.1 mode coexistence + §13 PR-comment upsert | [`reviewgate_action.coexistence`](reviewgate_action/coexistence.py) + [`reviewgate_action.post_comment`](reviewgate_action/post_comment.py) | #26 | done |
 
 Local invocation outside Actions:
 
@@ -42,16 +42,15 @@ jobs:
       pull-requests: read
     steps:
       - uses: actions/checkout@v4
-      - uses: leo-aa88/reviewgate-core/reviewgate-action@v1
+      - uses: leo-aa88/reviewgate/src/reviewgate_action@v1
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           fail-on: FAIL
           post-comment: true
 ```
 
-> **`uses:` path syntax.** GitHub Actions resolves `{owner}/{repo}/{path}@{ref}` as the subdirectory action at `{path}/action.yml` in `{owner}/{repo}`. This Action's `action.yml` lives at [`reviewgate-action/action.yml`](action.yml), so `leo-aa88/reviewgate-core/reviewgate-action@v1` is the documented subdirectory reference. See GitHub's "Using actions" docs ("Referencing an action in the same repository where a workflow file uses the action" and "Referencing an action in a different repository") for the spec.
-
-When this monorepo is split per `docs/DESIGN.md` §14 ("Repository: `github.com/reviewgate/reviewgate-action`"), consumers will reference `reviewgate/reviewgate-action@v1` instead -- the `<path>` segment simply collapses out and the input contract stays identical.
+> **`uses:` path syntax.** GitHub Actions resolves `{owner}/{repo}/{path}@{ref}` as the subdirectory action at `{path}/action.yml` in `{owner}/{repo}`. This Action's `action.yml` lives at [`src/reviewgate_action/action.yml`](action.yml) in [`leo-aa88/reviewgate`](https://github.com/leo-aa88/reviewgate), so `leo-aa88/reviewgate/src/reviewgate_action@v1` is the documented subdirectory reference. See GitHub's "Using actions" docs ("Referencing an action in the same repository where a workflow file uses the action" and "Referencing an action in a different repository") for the spec.
+> When this monorepo is split per `docs/DESIGN.md` §14 ("Repository: `github.com/reviewgate/reviewgate-action`"), consumers will reference `reviewgate/reviewgate-action@v1` instead -- the `<path>` segment simply collapses out and the input contract stays identical.
 
 ## Inputs
 

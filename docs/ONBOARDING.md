@@ -146,7 +146,7 @@ A few things worth knowing:
 
 If you want a fully open-source path, run ReviewGate from your own
 GitHub Actions runner instead of (or alongside) the hosted App. The
-Action lives at [`reviewgate-action/`](../reviewgate-action/) in this
+Action lives at [`src/reviewgate_action/`](../src/reviewgate_action/) in this
 repo; the §14 reference workflow:
 
 ```yaml
@@ -165,7 +165,7 @@ jobs:
       pull-requests: read       # add `write` to let the Action post the §13 comment
     steps:
       - uses: actions/checkout@v4
-      - uses: leo-aa88/reviewgate-core/reviewgate-action@v1
+      - uses: leo-aa88/reviewgate/src/reviewgate_action@v1
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           fail-on: FAIL          # never | PASS | WARN | FAIL (default: FAIL)
@@ -290,7 +290,7 @@ deterministic warning by code (e.g. `too_large_human_loc`,
 
 ## 8. Where to ask for help
 
-* **Open issues** at <https://github.com/leo-aa88/reviewgate-core>
+* **Open issues** at <https://github.com/leo-aa88/reviewgate>
   for bugs, feature requests, or surprising verdicts. Include the
   PR URL or a redacted §10.2 report so the team can reproduce.
 * **Beta Slack / email** is the right channel for "I want LLM

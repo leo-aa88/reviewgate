@@ -1379,11 +1379,16 @@ Teams can configure WARN as blocking later.
 
 ## 14. GitHub Action Design
 
-Repository:
+Repository (standalone split, future):
 
 ```text
 github.com/reviewgate/reviewgate-action
 ```
+
+**Open-source monorepo (today).** Until that repository exists, the same
+Action ships in [`leo-aa88/reviewgate`](https://github.com/leo-aa88/reviewgate)
+at `src/reviewgate_action/action.yml`. Consumers reference
+`leo-aa88/reviewgate/src/reviewgate_action@<tag>` (for example `@v1`).
 
 Usage:
 

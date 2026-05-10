@@ -617,7 +617,7 @@ def _setup_run_env(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
     *,
-    repo: str = "leo-aa88/reviewgate-core",
+    repo: str = "leo-aa88/reviewgate",
     pull_number: int = 1,
 ) -> None:
     monkeypatch.setenv("GITHUB_TOKEN", "ghp_test")

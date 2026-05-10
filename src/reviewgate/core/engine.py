@@ -20,6 +20,7 @@ from pydantic import ValidationError
 from .aggregate import baseline_reviewability
 from .categorizer import Categorizer
 from .config import DEFAULT_RISKY_PATHS, ReviewGateConfig
+from .pr_body import weak_body_warning
 from .schemas import EngineInput, EngineWarning, ReviewabilityReport
 from .size import compute_size_stats, size_warnings
 
@@ -68,6 +69,10 @@ def analyze(engine_input: EngineInput) -> ReviewabilityReport:
             fail_human_loc_changed=config.thresholds.fail.human_loc_changed,
         ),
     )
+
+    body_warning = weak_body_warning(pr.body)
+    if body_warning is not None:
+        warnings.append(body_warning)
 
     return ReviewabilityReport(
         reviewability=baseline_reviewability(warnings),

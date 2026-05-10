@@ -8,6 +8,7 @@ from . import (
     engine,
     heuristics,
     paths,
+    pr_body,
     report,
     schemas,
     size,
@@ -23,6 +24,7 @@ from .config import (
 )
 from .engine import analyze
 from .paths import PathMatcher, match_any
+from .pr_body import weak_body_warning
 from .size import SizeStats, compute_size_stats, size_warnings
 from .schemas import (
     ChangedFile,
@@ -70,8 +72,10 @@ __all__ = [
     "load_config",
     "match_any",
     "paths",
+    "pr_body",
     "report",
     "schemas",
     "size",
     "size_warnings",
+    "weak_body_warning",
 ]

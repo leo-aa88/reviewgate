@@ -270,7 +270,38 @@ keeps the upsert stable.
 
 ---
 
-## 6. Where to go next
+## 6. Hosted app (dev): Dramatiq worker (Redis)
+
+The hosted GitHub App runs long PR analysis jobs out-of-process using
+**Dramatiq** with a **Redis** broker (``docs/DESIGN.md`` §13.7). Issue #30 wires
+the worker entrypoint; issue #32 adds the FastAPI API process.
+
+From a repository clone:
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install -e ".[app]"
+export REVIEWGATE_REDIS_URL=redis://127.0.0.1:6379/0
+```
+
+Start Redis locally (Docker example: ``docker run -p 6379:6379 redis:7-alpine``),
+then in a **second terminal** with the same venv and ``REVIEWGATE_REDIS_URL``:
+
+```bash
+reviewgate-worker
+# equivalent explicit invocation:
+python -m dramatiq reviewgate.app.analysis.worker_app
+```
+
+The worker loads ``reviewgate.app.analysis.worker_app``, which installs the
+broker from ``AppSettings`` and imports stub actors from
+``reviewgate.app.analysis.jobs`` until issue #50 replaces them with the real
+pipeline.
+
+---
+
+## 7. Where to go next
 
 * [`docs/DESIGN.md`](DESIGN.md) — full product design, every
   threshold, every warning code, every architectural decision.

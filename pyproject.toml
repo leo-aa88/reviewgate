@@ -63,6 +63,8 @@ Design = "https://github.com/leo-aa88/reviewgate/blob/main/docs/DESIGN.md"
 [project.scripts]
 # Local-fixture CLI per DESIGN.md §5.1 / §25 M1; see src/reviewgate/core/cli.py.
 reviewgate-core = "reviewgate.core.cli:main"
+# Hosted worker (Dramatiq + Redis) per DESIGN.md §13.7 / issue #30.
+reviewgate-worker = "reviewgate.app.analysis.worker_cli:main"
 
 [project.optional-dependencies]
 # `types-PyYAML` is a stub-only package: PyYAML 6.x ships no inline type
@@ -81,6 +83,7 @@ app = [
     "psycopg[binary]>=3.1.18",
     "pydantic-settings>=2.2.0",
     "redis>=5.0.0",
+    "dramatiq[redis]>=1.17.0",
 ]
 
 [tool.pytest.ini_options]

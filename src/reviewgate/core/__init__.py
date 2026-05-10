@@ -7,6 +7,7 @@ from . import (
     config,
     engine,
     heuristics,
+    linked_issue,
     paths,
     pr_body,
     report,
@@ -23,6 +24,7 @@ from .config import (
     load_config,
 )
 from .engine import analyze
+from .linked_issue import find_issue_references, linked_issue_warning
 from .paths import PathMatcher, match_any
 from .pr_body import weak_body_warning
 from .size import SizeStats, compute_size_stats, size_warnings
@@ -68,7 +70,10 @@ __all__ = [
     "compute_size_stats",
     "config",
     "engine",
+    "find_issue_references",
     "heuristics",
+    "linked_issue",
+    "linked_issue_warning",
     "load_config",
     "match_any",
     "paths",

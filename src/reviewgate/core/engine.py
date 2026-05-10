@@ -20,6 +20,7 @@ from pydantic import ValidationError
 from .aggregate import baseline_reviewability
 from .categorizer import Categorizer
 from .config import DEFAULT_RISKY_PATHS, ReviewGateConfig
+from .linked_issue import linked_issue_warning
 from .pr_body import weak_body_warning
 from .schemas import EngineInput, EngineWarning, ReviewabilityReport
 from .size import compute_size_stats, size_warnings
@@ -73,6 +74,14 @@ def analyze(engine_input: EngineInput) -> ReviewabilityReport:
     body_warning = weak_body_warning(pr.body)
     if body_warning is not None:
         warnings.append(body_warning)
+
+    issue_warning = linked_issue_warning(
+        pr.title,
+        pr.body,
+        require_linked_issue=config.policy.require_linked_issue,
+    )
+    if issue_warning is not None:
+        warnings.append(issue_warning)
 
     return ReviewabilityReport(
         reviewability=baseline_reviewability(warnings),

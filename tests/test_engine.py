@@ -31,14 +31,22 @@ from reviewgate.core.size import (
 
 _AUTHOR: Final[str] = "octocat"
 
-# A body well above the \u00a710.10 80-meaningful-char threshold so the
-# weak-body heuristic stays silent. Tests that want to exercise weak-body
-# behaviour pass an explicit ``body=`` override.
+# A body well above the \u00a710.10 80-meaningful-char threshold AND
+# carrying a `Closes #1` issue reference so neither the weak-body
+# heuristic (#11) nor the missing-linked-issue heuristic (#12) fires
+# by default. Tests that want to exercise either heuristic pass an
+# explicit ``body=`` override.
 _SUBSTANTIVE_BODY: Final[str] = (
+    "Closes #1.\n\n"
     "This pull request implements a focused improvement to the API: "
     "it adds caching for the user activity endpoint and updates the "
     "matching unit tests so the reviewer can confirm the new behaviour "
     "without spinning up a full environment."
+)
+_BODY_WITHOUT_ISSUE_REF: Final[str] = (
+    "This pull request implements a focused improvement to the API "
+    "by adjusting the validation logic in the user input layer so the "
+    "reviewer can confirm the new behaviour without any extra setup."
 )
 
 
@@ -228,10 +236,12 @@ def test_analyze_silently_falls_back_to_defaults_on_invalid_config() -> None:
 
 
 def test_analyze_emits_weak_body_warning_when_pr_body_is_empty() -> None:
-    """\u00a710.10: an empty PR body fires a single ``weak_pr_body`` medium warning.
+    """\u00a710.10: an empty PR body fires a ``weak_pr_body`` medium warning.
 
-    Verifies #11 is wired through ``analyze()`` end to end and does not
-    interfere with the size dimension when the diff is otherwise small.
+    Verifies #11 is wired through ``analyze()`` end to end. An empty
+    body also lacks any issue reference, so the linked-issue heuristic
+    (#12) co-fires; this test isolates the weak-body assertion by
+    filtering on code.
     """
 
     from reviewgate.core.pr_body import REASON_EMPTY, WARN_CODE_WEAK_BODY
@@ -242,15 +252,62 @@ def test_analyze_emits_weak_body_warning_when_pr_body_is_empty() -> None:
     )
     report = analyze(engine_input)
 
-    [warning] = report.warnings
-    assert warning.code == WARN_CODE_WEAK_BODY
+    [warning] = [w for w in report.warnings if w.code == WARN_CODE_WEAK_BODY]
     assert warning.severity == "medium"
     assert warning.evidence["reason"] == REASON_EMPTY
 
 
-def test_analyze_combines_size_and_weak_body_warnings() -> None:
-    """A 5000-LOC PR with an empty body emits both heuristics' warnings."""
+def test_analyze_emits_missing_linked_issue_warning_by_default() -> None:
+    """\u00a710.10 + \u00a712: default policy requires a linked issue; none -> warn.
 
+    A substantive body without any \u00a710.10 reference still trips the
+    heuristic on a default-config run.
+    """
+
+    from reviewgate.core.linked_issue import WARN_CODE_MISSING_LINKED_ISSUE
+
+    engine_input = EngineInput(
+        pr=_pr(
+            additions=10,
+            deletions=2,
+            changed_files=1,
+            body=_BODY_WITHOUT_ISSUE_REF,
+        ),
+        files=[_file("README.md", changes=12)],
+    )
+    report = analyze(engine_input)
+
+    [warning] = report.warnings
+    assert warning.code == WARN_CODE_MISSING_LINKED_ISSUE
+    assert warning.severity == "medium"
+
+
+def test_analyze_respects_require_linked_issue_disabled_via_config() -> None:
+    """\u00a712 ``policy.require_linked_issue: false`` silences the heuristic."""
+
+    engine_input = EngineInput(
+        pr=_pr(
+            additions=10,
+            deletions=2,
+            changed_files=1,
+            body=_BODY_WITHOUT_ISSUE_REF,
+        ),
+        files=[_file("README.md", changes=12)],
+        config={"policy": {"require_linked_issue": False}},
+    )
+    report = analyze(engine_input)
+    assert report.warnings == []
+
+
+def test_analyze_combines_size_weak_body_and_linked_issue_warnings() -> None:
+    """A 5000-LOC PR with an empty body fires every heuristic.
+
+    Empty body trips both #11 (weak body) and #12 (no linked issue
+    found in title or body); 5000 LOC trips #10 (too-large human LOC).
+    Result: 1 high + 2 medium warnings, baseline FAIL per \u00a710.13.
+    """
+
+    from reviewgate.core.linked_issue import WARN_CODE_MISSING_LINKED_ISSUE
     from reviewgate.core.pr_body import WARN_CODE_WEAK_BODY
 
     engine_input = EngineInput(
@@ -260,9 +317,15 @@ def test_analyze_combines_size_and_weak_body_warnings() -> None:
     report = analyze(engine_input)
 
     codes = sorted(w.code for w in report.warnings)
-    assert codes == sorted([WARN_CODE_WEAK_BODY, WARN_CODE_TOO_LARGE_HUMAN_LOC])
+    assert codes == sorted(
+        [
+            WARN_CODE_WEAK_BODY,
+            WARN_CODE_TOO_LARGE_HUMAN_LOC,
+            WARN_CODE_MISSING_LINKED_ISSUE,
+        ],
+    )
     fail_verdict: Reviewability = "FAIL"
-    # 1 high (size) + 1 medium (body) -> FAIL per \u00a710.13.
+    # 1 high (size) + 2 medium (body + linked issue) -> FAIL per \u00a710.13.
     assert report.reviewability == fail_verdict
 
 

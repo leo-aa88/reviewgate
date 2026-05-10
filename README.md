@@ -18,3 +18,11 @@ source .venv/bin/activate
 pip install -e ".[dev]"
 pytest
 ```
+
+## Contributing
+
+Before opening a PR, see [`CONTRIBUTING.md`](CONTRIBUTING.md). Note in
+particular the **`reviewgate-core` purity boundary** (§4.1): the engine
+must remain pure (no GitHub API, no network, no filesystem writes, no
+database, no LLM, no side effects). CI fails any change that imports a
+forbidden module into `src/reviewgate/core/`.

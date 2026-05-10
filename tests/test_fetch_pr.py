@@ -144,7 +144,14 @@ def test_split_repo_accepts_dotted_and_dashed_names() -> None:
 
 
 def test_pull_number_from_event_reads_pull_request_block(tmp_path: Path) -> None:
-    """The PR number comes from ``pull_request.number`` first."""
+    """The PR number comes from ``pull_request.number`` first.
+
+    Both ``pull_request`` and ``pull_request_target`` webhooks deliver
+    the PR resource under the ``pull_request`` key with ``number`` as a
+    top-level field of that object. The synthetic payload here pins
+    that contract; a realistic payload shape is exercised in
+    :func:`test_pull_number_from_event_handles_realistic_pull_request_payload`.
+    """
 
     event = tmp_path / "event.json"
     event.write_text(
@@ -154,12 +161,105 @@ def test_pull_number_from_event_reads_pull_request_block(tmp_path: Path) -> None
     assert fetch_pr._pull_number_from_event(str(event)) == 42
 
 
+@pytest.mark.parametrize(
+    "action_subtype",
+    ["opened", "synchronize", "reopened", "edited"],
+)
+def test_pull_number_from_event_handles_realistic_pull_request_payload(
+    tmp_path: Path, action_subtype: str
+) -> None:
+    """A realistic ``pull_request.<subtype>`` payload resolves the PR number.
+
+    Mirrors the documented `pull_request` webhook shape (Action,
+    `number`, nested `pull_request` resource with its own `number`,
+    `head`, `base`, `user`). Pinning the resolution against this
+    shape across the four subtypes the §14 example workflow listens
+    on (`opened`, `synchronize`, `reopened`, `edited`) catches a
+    regression where the resolver might prefer the top-level
+    ``number`` (which exists on `pull_request` events too and equals
+    the PR number) but lose the field for other PR-shaped events.
+    """
+
+    payload = {
+        "action": action_subtype,
+        "number": 137,
+        "pull_request": {
+            "number": 137,
+            "title": "Refactor SearchIndex",
+            "user": {"login": "octocat"},
+            "head": {"ref": "feat/search"},
+            "base": {"ref": "main"},
+        },
+    }
+    event = tmp_path / "event.json"
+    event.write_text(json.dumps(payload), encoding="utf-8")
+    assert fetch_pr._pull_number_from_event(str(event)) == 137
+
+
+def test_pull_number_from_event_handles_pull_request_target_payload(
+    tmp_path: Path,
+) -> None:
+    """``pull_request_target`` events use the same payload shape.
+
+    GitHub documents `pull_request_target` as carrying an identical
+    payload to `pull_request`; the resolver must therefore work for
+    that event too without a code branch.
+    """
+
+    payload = {
+        "action": "synchronize",
+        "number": 901,
+        "pull_request": {
+            "number": 901,
+            "title": "Bump deps",
+            "user": {"login": "renovate-bot"},
+            "head": {"ref": "deps/quarterly"},
+            "base": {"ref": "main"},
+        },
+    }
+    event = tmp_path / "event.json"
+    event.write_text(json.dumps(payload), encoding="utf-8")
+    assert fetch_pr._pull_number_from_event(str(event)) == 901
+
+
 def test_pull_number_from_event_falls_back_to_top_level(tmp_path: Path) -> None:
     """Some PR-shaped events only carry ``number`` at the top level."""
 
     event = tmp_path / "event.json"
     event.write_text(json.dumps({"number": 7}), encoding="utf-8")
     assert fetch_pr._pull_number_from_event(str(event)) == 7
+
+
+def test_pull_number_from_event_prefers_pull_request_block_over_top_level(
+    tmp_path: Path,
+) -> None:
+    """A mismatched top-level ``number`` must lose to ``pull_request.number``.
+
+    Real `pull_request` payloads carry the PR number in both places
+    and they always agree, but pinning the precedence rule prevents
+    a future divergence (e.g., a sub-event that reuses ``number`` for
+    something else like a comment id) from silently changing behaviour.
+    """
+
+    event = tmp_path / "event.json"
+    event.write_text(
+        json.dumps({"number": 999, "pull_request": {"number": 1}}),
+        encoding="utf-8",
+    )
+    assert fetch_pr._pull_number_from_event(str(event)) == 1
+
+
+def test_pull_number_from_event_skips_non_dict_pull_request_block(
+    tmp_path: Path,
+) -> None:
+    """A null/scalar ``pull_request`` field must not crash; falls back."""
+
+    event = tmp_path / "event.json"
+    event.write_text(
+        json.dumps({"pull_request": None, "number": 88}),
+        encoding="utf-8",
+    )
+    assert fetch_pr._pull_number_from_event(str(event)) == 88
 
 
 def test_pull_number_from_event_raises_on_non_pr_event(tmp_path: Path) -> None:

@@ -5,16 +5,18 @@ on:
     types: [opened, synchronize, reopened, ready_for_review]
   schedule:
     # Poll for open PRs (cheap no-op when none); dedupes by head SHA in comments.
-    - cron: "*/15 * * * *"
+    - cron: "*/5 * * * *"
   workflow_dispatch: {}
 
 concurrency:
   group: pr-llm-review-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: true
 
+# `pull-requests: write` is required to post PR conversation comments with GITHUB_TOKEN
+# (`issues: write` alone often still returns 403 on PR threads).
 permissions:
   contents: read
-  pull-requests: read
+  pull-requests: write
   issues: write
 
 jobs:
@@ -29,7 +31,7 @@ jobs:
 
       - name: Run LLM review script
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ github.token }}
           GITHUB_EVENT_NAME: ${{ github.event_name }}
           GITHUB_EVENT_PATH: ${{ github.event_path }}
           GITHUB_REPOSITORY: ${{ github.repository }}

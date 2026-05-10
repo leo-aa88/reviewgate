@@ -49,8 +49,21 @@ def _http_json(
     if body is not None:
         req.add_header("Content-Type", "application/json")
     ctx = ssl.create_default_context()
-    with urllib.request.urlopen(req, timeout=120, context=ctx) as resp:
-        raw = resp.read().decode()
+    try:
+        with urllib.request.urlopen(req, timeout=120, context=ctx) as resp:
+            raw = resp.read().decode()
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode(errors="replace")
+        hint = ""
+        if exc.code == 403:
+            hint = (
+                " Hint: ensure workflow permissions include pull-requests:write; "
+                "repo Settings → Actions → General → Workflow permissions must allow "
+                "read/write (org policy can block this)."
+            )
+        raise RuntimeError(
+            f"GitHub API HTTP {exc.code} for {method} {url}: {detail[:800]}{hint}"
+        ) from exc
     return json.loads(raw) if raw.strip() else None
 
 
@@ -59,8 +72,14 @@ def _http_text(method: str, url: str, token: str, *, accept: str) -> str:
     for k, v in _github_headers(token, accept=accept).items():
         req.add_header(k, v)
     ctx = ssl.create_default_context()
-    with urllib.request.urlopen(req, timeout=120, context=ctx) as resp:
-        return resp.read().decode()
+    try:
+        with urllib.request.urlopen(req, timeout=120, context=ctx) as resp:
+            return resp.read().decode()
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode(errors="replace")
+        raise RuntimeError(
+            f"GitHub API HTTP {exc.code} for {method} {url}: {detail[:800]}"
+        ) from exc
 
 
 def _list_open_pulls(owner: str, repo: str, token: str) -> list[dict[str, Any]]:

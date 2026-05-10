@@ -27,3 +27,11 @@ def test_privacy_returns_html_with_design_copy() -> None:
         "If you uninstall ReviewGate, we delete analysis data associated with your "
         "installation within 30 days unless you request deletion sooner."
     ) in body
+
+
+def test_privacy_route_registered_in_openapi() -> None:
+    """Regression: ``/privacy`` must stay wired on the app (issue #37)."""
+
+    schema = create_app().openapi()
+    op = schema["paths"]["/privacy"]["get"]
+    assert op["responses"]["200"]["content"]["text/html"]["schema"]["type"] == "string"

@@ -48,7 +48,9 @@ inputs:
     description: >-
       When `true`, post or upsert the §13 ReviewGate marker comment on
       the PR. When `false`, the Action only writes the report to the
-      job summary and step output. Default `true` per §14.
+      job summary (the `reviewability` and `report-json` step outputs
+      arrive together with the runtime in #25; the scaffold does not
+      emit any step outputs yet). Default `true` per §14.
     required: false
     default: "true"
 

@@ -76,14 +76,18 @@ dev = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-# ``src`` is on the path so ``import reviewgate`` / ``import reviewgate_action``
-# resolve without an editable install. Omit the repo root so pytest does not
-# mask broken installs by importing loose modules from ``.``. ``tests`` enables
-# shared fixtures (``tests/fixtures/...``, see ``tests/fixtures/m2_golden/manifest.py``).
-pythonpath = ["src", "tests"]
+# ``src`` exposes ``reviewgate``; ``src/reviewgate_action`` exposes the nested
+# ``reviewgate_action`` package (see ``src/reviewgate_action/reviewgate_action/``).
+# Omit the repo root so pytest does not mask broken installs. ``tests`` enables
+# shared fixtures (``tests/fixtures/...``).
+pythonpath = ["src", "src/reviewgate_action", "tests"]
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/reviewgate", "src/reviewgate_action"]
+packages = ["src/reviewgate"]
+
+# Ship the Action runtime as a flat ``reviewgate_action`` package in site-packages.
+[tool.hatch.build.targets.wheel.force-include]
+"src/reviewgate_action/reviewgate_action" = "reviewgate_action"
 
 [tool.hatch.build.targets.sdist]
 # Whitelist the source tree so the sdist never bundles a local

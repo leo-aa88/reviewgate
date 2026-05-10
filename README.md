@@ -379,10 +379,11 @@ reviewgate/
 │   └── reviewgate_action/      # GitHub Action wrapper (§14)
 │       ├── action.yml          # composite action contract
 │       ├── README.md
-│       ├── fetch_pr.py         # PR + paginated files fetch
-│       ├── run_core.py         # config + engine + fail-on + comment
-│       ├── coexistence.py      # §14.1 mode resolver
-│       └── post_comment.py     # §13 marker-comment upsert
+│       └── reviewgate_action/  # Python package (import ``reviewgate_action``)
+│           ├── fetch_pr.py     # PR + paginated files fetch
+│           ├── run_core.py     # config + engine + fail-on + comment
+│           ├── coexistence.py  # §14.1 mode resolver
+│           └── post_comment.py # §13 marker-comment upsert
 ├── tests/                       # 671 unit + integration tests
 │   ├── fixtures/m2_golden/     # 14 §24.2 golden PR fixtures
 │   ├── test_core_purity.py     # §4.1 boundary enforcement (AST scan)
@@ -413,7 +414,7 @@ reviewgate/
 
 * **`reviewgate-core` (deterministic engine):** runtime complete.
   All §10 heuristics from `docs/DESIGN.md` are implemented and
-  covered by 671 passing tests on Python 3.12.
+  covered by 671 passing tests on Python 3.12 and 3.13 (see CI matrix).
 * **`reviewgate-action` (GitHub Action):** runtime complete (issues
   #24, #25, #26 landed). Fetches PR metadata, loads `.reviewgate.yml`,
   runs the engine, applies the §14 `fail-on` policy, and (when §14.1
@@ -476,8 +477,8 @@ pip install -e ".[dev]"
 pytest
 ```
 
-CI runs the same command on Python 3.12 in
-[`.github/workflows/ci.yml`](.github/workflows/ci.yml). The repository
+CI runs the same ``pytest`` job on Python **3.12** and **3.13** (see the
+matrix in [`.github/workflows/ci.yml`](.github/workflows/ci.yml)). The repository
 also dogfoods itself: every PR is reviewed by an LLM-backed action in
 [`.github/workflows/pr-llm-review.yml`](.github/workflows/pr-llm-review.yml).
 

@@ -8,9 +8,9 @@ GitHub Action wrapper around the deterministic engine ([`src/reviewgate/core/`](
 
 | Step | Module | Issue | Lands |
 | ---- | ------ | ----- | ----- |
-| Fetch PR metadata + paginated files | [`reviewgate_action.fetch_pr`](fetch_pr.py) | #24 | done |
-| Load `.reviewgate.yml`, run core, apply `fail-on` | [`reviewgate_action.run_core`](run_core.py) | #25 | done |
-| §14.1 mode coexistence + §13 PR-comment upsert | [`reviewgate_action.coexistence`](coexistence.py) + [`reviewgate_action.post_comment`](post_comment.py) | #26 | done |
+| Fetch PR metadata + paginated files | [`reviewgate_action.fetch_pr`](reviewgate_action/fetch_pr.py) | #24 | done |
+| Load `.reviewgate.yml`, run core, apply `fail-on` | [`reviewgate_action.run_core`](reviewgate_action/run_core.py) | #25 | done |
+| §14.1 mode coexistence + §13 PR-comment upsert | [`reviewgate_action.coexistence`](reviewgate_action/coexistence.py) + [`reviewgate_action.post_comment`](reviewgate_action/post_comment.py) | #26 | done |
 
 Local invocation outside Actions:
 

@@ -203,6 +203,25 @@ def test_user_overridden_labels_propagate() -> None:
     ]
 
 
+def test_suggested_labels_is_reachable_via_package_re_export() -> None:
+    """``from reviewgate.core import suggested_labels`` exercises the API surface.
+
+    Regression guard for the package ``__init__.py``: if the re-export is
+    dropped or renamed, downstream consumers (the GitHub App label
+    applier from #52, the hosted worker from #50) lose access to the
+    helper without any in-tree consumer noticing.
+    """
+
+    from reviewgate.core import suggested_labels as exported_helper
+
+    out = exported_helper(
+        "PASS",
+        [_warning(WARN_CODE_TOO_MANY_FILES)],
+        Labels(),
+    )
+    assert out == ["reviewability-pass", "too-large"]
+
+
 def test_verdict_label_not_duplicated_when_collision_with_concern_label() -> None:
     """If a user names the verdict label same as a concern label, dedupe wins.
 

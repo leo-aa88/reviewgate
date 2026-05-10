@@ -106,20 +106,26 @@ def _http_text(method: str, url: str, token: str, *, accept: str) -> str:
 
 
 def _list_paginated(
-    url_template: str, token: str, *, page_size: int
+    base_url: str, token: str, *, page_size: int
 ) -> list[JsonObject]:
     """Walk a paginated GitHub list endpoint to exhaustion.
 
     Args:
-        url_template: A URL containing a single ``{page}`` placeholder; the
-            ``per_page`` query parameter is expected to already be baked in.
+        base_url: Fully-formed URL with everything except ``page=`` already
+            baked in (caller is expected to include ``per_page``). Pagination
+            appends ``&page=N`` -- using direct string concatenation rather
+            than :py:meth:`str.format` so any literal ``{`` / ``}`` characters
+            in a query value cannot trigger a ``KeyError`` before the HTTP
+            call.
         token: GitHub bearer token.
         page_size: Page size encoded in the URL; used to detect the last page.
     """
     out: list[JsonObject] = []
     page = 1
+    separator = "&" if "?" in base_url else "?"
     while True:
-        chunk = _http_json("GET", url_template.format(page=page), token)
+        url = f"{base_url}{separator}page={page}"
+        chunk = _http_json("GET", url, token)
         if not isinstance(chunk, list) or not chunk:
             break
         for row in chunk:
@@ -132,31 +138,31 @@ def _list_paginated(
 
 
 def _list_open_pulls(owner: str, repo: str, token: str) -> list[JsonObject]:
-    tmpl = (
+    base = (
         f"https://api.github.com/repos/{owner}/{repo}/pulls"
-        f"?state=open&per_page={PULLS_PAGE_SIZE}&page={{page}}"
+        f"?state=open&per_page={PULLS_PAGE_SIZE}"
     )
-    return _list_paginated(tmpl, token, page_size=PULLS_PAGE_SIZE)
+    return _list_paginated(base, token, page_size=PULLS_PAGE_SIZE)
 
 
 def _list_issue_comments(
     owner: str, repo: str, issue_number: int, token: str
 ) -> list[JsonObject]:
-    tmpl = (
+    base = (
         f"https://api.github.com/repos/{owner}/{repo}/issues/{issue_number}/comments"
-        f"?per_page={ISSUE_COMMENTS_PAGE_SIZE}&page={{page}}"
+        f"?per_page={ISSUE_COMMENTS_PAGE_SIZE}"
     )
-    return _list_paginated(tmpl, token, page_size=ISSUE_COMMENTS_PAGE_SIZE)
+    return _list_paginated(base, token, page_size=ISSUE_COMMENTS_PAGE_SIZE)
 
 
 def _list_pr_reviews(
     owner: str, repo: str, pr_number: int, token: str
 ) -> list[JsonObject]:
-    tmpl = (
+    base = (
         f"https://api.github.com/repos/{owner}/{repo}/pulls/{pr_number}/reviews"
-        f"?per_page={REVIEWS_PAGE_SIZE}&page={{page}}"
+        f"?per_page={REVIEWS_PAGE_SIZE}"
     )
-    return _list_paginated(tmpl, token, page_size=REVIEWS_PAGE_SIZE)
+    return _list_paginated(base, token, page_size=REVIEWS_PAGE_SIZE)
 
 
 def _fork_pr(repository: str, item: JsonObject) -> bool:

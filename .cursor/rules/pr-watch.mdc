@@ -7,7 +7,9 @@ alwaysApply: true
 
 When the user cares about PRs, CI, or merging, **do not assume** there are no open PRs.
 
-There is **no** automated code review in CI; reviews must be grounded in the actual diff.
+**CI:** Workflow `PR LLM review` runs on every PR **push** (`synchronize`) and on a **15-minute schedule** when you need to catch missed webhooks. It posts a diff-based LLM comment once per **head SHA** (re-runs after each push). Configure repo secret **`OPENAI_API_KEY`** (optional repo variables `OPENAI_MODEL`, `OPENAI_BASE_URL`). Fork PRs are skipped (token cannot comment).
+
+For a deeper pass than CI, still do this manually:
 
 1. Run: `gh pr list --repo leo-aa88/reviewgate-core --state open --json number,title,url`
 2. For each open PR, fetch the diff (`gh pr diff <number> --repo leo-aa88/reviewgate-core`) and review against project standards: strict typing (no silent `Any`), Google-style docstrings on public APIs, file size (non-test under 500 LOC preferred, max 600), modularity, no compat fallbacks without agreement, no magic literals without names, correctness and tests, concurrency safety, KISS/DRY, SOLID/clean code.

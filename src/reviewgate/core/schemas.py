@@ -1,16 +1,21 @@
 """Normalized JSON schemas for the deterministic engine.
 
-Covers docs/DESIGN.md \u00a710.1 (input envelope), \u00a710.2 (output envelope and
-``split_hints`` items), \u00a710.5 (per-file ``file_categories`` row), and \u00a710.12
-(warning objects). Typed ``config`` on input is JSON-shaped until issue #3
-introduces a dedicated config model.
+Covers docs/DESIGN.md \u00a710.1 (input envelope), \u00a710.2 (output
+envelope and ``split_hints`` items), \u00a710.5 (per-file
+``file_categories`` row), and \u00a710.12 (warning objects). The typed
+``.reviewgate.yml`` configuration model lives in
+:mod:`reviewgate.core.config`; ``EngineInput.config`` here remains a
+JSON-shaped passthrough so that fixtures already serialized as JSON can
+be loaded without re-validating \u00a712 fields twice.
 """
 
 from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, JsonValue
+from pydantic import Field, JsonValue
+
+from reviewgate.core._base import StrictModel
 
 Reviewability = Literal["PASS", "WARN", "FAIL"]
 FileStatus = Literal["added", "modified", "removed", "renamed"]
@@ -36,17 +41,7 @@ FileCategory = Literal[
 ]
 
 
-class _StrictModel(BaseModel):
-    """Shared strict JSON-contract defaults for engine models."""
-
-    model_config = ConfigDict(
-        extra="forbid",
-        strict=True,
-        str_strip_whitespace=True,
-    )
-
-
-class PRRecord(_StrictModel):
+class PRRecord(StrictModel):
     """Pull request subset passed into the engine (\u00a710.1)."""
 
     title: str = Field(description="PR title (\u00a710.1).")
@@ -59,7 +54,7 @@ class PRRecord(_StrictModel):
     changed_files: int = Field(ge=0, description="Count of changed files (\u00a710.1).")
 
 
-class ChangedFile(_StrictModel):
+class ChangedFile(StrictModel):
     """One entry in the changed-files list (\u00a710.1)."""
 
     filename: str = Field(description="Repository-relative path (\u00a710.1).")
@@ -73,18 +68,21 @@ class ChangedFile(_StrictModel):
     )
 
 
-class EngineInput(_StrictModel):
+class EngineInput(StrictModel):
     """Top-level deterministic engine input envelope (\u00a710.1)."""
 
     pr: PRRecord = Field(description="Normalized PR metadata (\u00a710.1).")
     files: list[ChangedFile] = Field(description="Changed files with optional patches (\u00a710.1).")
     config: dict[str, JsonValue] = Field(
         default_factory=dict,
-        description="Effective repo config merged with defaults; JSON-shaped until #3 (\u00a710.1 `config`).",
+        description=(
+            "Effective repo config (\u00a710.1 `config`); pass the JSON-mode dump of "
+            ":class:`reviewgate.core.config.ReviewGateConfig` for typed defaults."
+        ),
     )
 
 
-class EngineWarning(_StrictModel):
+class EngineWarning(StrictModel):
     """Single deterministic warning (\u00a710.12)."""
 
     code: str = Field(
@@ -98,7 +96,7 @@ class EngineWarning(_StrictModel):
     )
 
 
-class FileCategoryRow(_StrictModel):
+class FileCategoryRow(StrictModel):
     """Per-file categorization row in the report (\u00a710.5 example, \u00a710.2 ``file_categories``)."""
 
     filename: str = Field(description="Repository-relative path (\u00a710.5).")
@@ -111,7 +109,7 @@ class FileCategoryRow(_StrictModel):
     changes: int = Field(ge=0, description="Changed line count used for reporting (\u00a710.5).")
 
 
-class SplitHint(_StrictModel):
+class SplitHint(StrictModel):
     """Structured split suggestion item (\u00a710.2 `split_hints`)."""
 
     title: str = Field(description="Short title for a suggested follow-up PR (\u00a710.2).")
@@ -121,7 +119,7 @@ class SplitHint(_StrictModel):
     )
 
 
-class ReviewabilityReport(_StrictModel):
+class ReviewabilityReport(StrictModel):
     """Deterministic engine output (\u00a710.2)."""
 
     reviewability: Reviewability = Field(description="Baseline PASS/WARN/FAIL (\u00a710.2).")

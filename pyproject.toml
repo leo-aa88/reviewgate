@@ -12,10 +12,18 @@ authors = [{ name = "ReviewGate contributors" }]
 
 dependencies = [
     "pydantic>=2.7",
+    "PyYAML>=6.0",
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8.0"]
+# `types-PyYAML` is a stub-only package: PyYAML 6.x ships no inline type
+# information, so consumers running `mypy --strict` (or pyright) need the
+# stubs to keep the deterministic engine free of `Any`-by-import. It is a
+# dev-only dependency; no runtime code imports from `types-PyYAML`.
+dev = [
+    "pytest>=8.0",
+    "types-PyYAML>=6.0",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -38,12 +38,16 @@ When this monorepo is split per `docs/DESIGN.md` §14 ("Repository: `github.com/
 | `post-comment` | no | `"true"` | Whether to upsert the §13 ReviewGate marker comment on the PR. |
 | `mode` | no | `auto` | Coexistence with the hosted ReviewGate App (§14.1). One of `auto`, `action`, `quiet`. `auto` defers to `.reviewgate.yml`. |
 
-## Outputs
+## Outputs (planned -- arrive with the runtime in #25)
+
+The §14 design intends two public outputs once the runtime lands:
 
 | Name | Description |
 | ---- | ----------- |
-| `reviewability` | The §10.13 baseline verdict (`PASS` / `WARN` / `FAIL`), or empty when the Action did not run (e.g. `mode: quiet`). |
-| `report-json` | The full §10.2 report as a JSON string. Empty when the Action did not run. Parse with `fromJSON()`. |
+| `reviewability` | The §10.13 baseline verdict (`PASS` / `WARN` / `FAIL`). Empty when the Action did not run (e.g. `mode: quiet`). |
+| `report-json` | The full §10.2 report as a JSON string. Empty when the Action did not run. Consumers should parse with `fromJSON()`. |
+
+These are intentionally **not** declared on the scaffold's `action.yml`: composite outputs must reference a real step output, and emitting empty placeholders would silently break `if: steps.x.outputs.reviewability == 'PASS'` checks and crash `fromJSON(steps.x.outputs.report-json)` consumers. Both outputs are wired together with the core runtime in #25 so every consumer always receives a valid value.
 
 ## Coexistence with the hosted App (§14.1)
 

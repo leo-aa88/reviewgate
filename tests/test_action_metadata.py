@@ -159,28 +159,32 @@ def test_action_runs_uses_composite_per_design_doc(
     )
 
 
-def test_action_outputs_expose_reviewability_and_report(
+def test_scaffold_does_not_declare_unimplemented_outputs(
     action_metadata: dict[str, Any],
 ) -> None:
-    """The §10.13 verdict and §10.2 report JSON are public outputs.
+    """Outputs are intentionally absent until the runtime can fill them.
 
-    Consumers chain follow-up jobs on the verdict (e.g. label apply,
-    Slack notify); locking these output names prevents a rename from
-    breaking downstream `needs.<job>.outputs.reviewability` lookups.
+    Composite outputs must reference a real step output. Emitting empty
+    placeholders for `reviewability` / `report-json` would silently
+    break ``if: steps.x.outputs.reviewability == 'PASS'`` checks and
+    crash ``fromJSON(steps.x.outputs.report-json)`` consumers. Both
+    outputs are wired in #25 alongside the core runtime; this guard
+    fails if a future change reintroduces an empty-string output
+    before the runtime is ready.
     """
 
     outputs = action_metadata.get("outputs")
-    assert isinstance(outputs, dict), "action.yml must declare an `outputs` mapping"
-    assert {"reviewability", "report-json"} <= set(outputs.keys()), (
-        f"outputs missing required keys; got {sorted(outputs.keys())}"
-    )
-    for name in ("reviewability", "report-json"):
-        spec = outputs[name]
-        assert isinstance(spec, dict)
-        assert spec.get("description"), f"{name}: output must have a description"
-        assert spec.get("value"), (
-            f"{name}: composite outputs must declare a `value` mapping to "
-            "a step output"
+    if outputs is None:
+        return
+    assert isinstance(outputs, dict)
+    for name, spec in outputs.items():
+        assert isinstance(spec, dict), f"{name}: output spec must be a mapping"
+        value = spec.get("value")
+        assert isinstance(value, str) and value.strip(), (
+            f"{name}: declared output must be wired to a non-empty step "
+            "expression; do not declare outputs that resolve to an empty "
+            "string -- that breaks fromJSON() and equality checks for "
+            "consumers."
         )
 
 
@@ -196,11 +200,15 @@ def test_top_level_readme_includes_design_doc_snippet() -> None:
     assert "post-comment: true" in readme
 
 
-def test_action_readme_documents_every_input_and_output() -> None:
-    """The per-action README must list every input and output by name.
+def test_action_readme_documents_every_input_and_planned_outputs() -> None:
+    """The per-action README must list every input and the planned outputs.
 
     Drift catcher: if a future PR adds an input to `action.yml` but
     forgets the docs row, this test fails before the change ships.
+    The two §14 outputs (`reviewability`, `report-json`) are
+    documented as "planned" in the scaffold (they land with the
+    runtime in #25) but the names must still appear so consumers
+    reading the README know what the eventual contract is.
     """
 
     readme = _ACTION_README.read_text(encoding="utf-8")
@@ -210,5 +218,5 @@ def test_action_readme_documents_every_input_and_output() -> None:
         )
     for name in ("reviewability", "report-json"):
         assert f"`{name}`" in readme, (
-            f"reviewgate-action/README.md must document output `{name}`"
+            f"reviewgate-action/README.md must document planned output `{name}`"
         )

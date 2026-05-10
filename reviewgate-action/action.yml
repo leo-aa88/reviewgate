@@ -61,20 +61,15 @@ inputs:
     required: false
     default: auto
 
-outputs:
-  reviewability:
-    description: >-
-      The §10.13 baseline verdict produced by reviewgate-core. One of
-      `PASS`, `WARN`, or `FAIL`. Empty string when the Action did not
-      run (e.g. `mode: quiet` honoured at startup).
-    value: ${{ steps.run.outputs.reviewability }}
-
-  report-json:
-    description: >-
-      The full §10.2 report as a JSON string. Empty when the Action
-      did not run. Consumers should parse with `fromJSON()` rather
-      than relying on string contents.
-    value: ${{ steps.run.outputs.report-json }}
+# Note on `outputs`: the §14 design intends two public outputs --
+# `reviewability` (the §10.13 verdict) and `report-json` (the §10.2
+# report). They are intentionally NOT declared on this scaffold
+# because composite outputs must reference a real step output, and
+# this scaffold cannot yet produce a verdict or a report. Wiring the
+# two outputs lands together with the core runtime in #25 so that
+# every consumer that copy-pastes `fromJSON(steps.x.outputs.report-json)`
+# always receives valid JSON. See `reviewgate-action/README.md` for
+# the planned output contract.
 
 # §14 places the runtime behind `runs.using: composite` so the Action
 # stays in a single repository (no Docker image, no Node packaging).
@@ -120,6 +115,3 @@ runs:
         esac
 
         echo "::notice::reviewgate-action scaffold ran with fail-on=${REVIEWGATE_FAIL_ON}, post-comment=${REVIEWGATE_POST_COMMENT}, mode=${REVIEWGATE_MODE}. Runtime (PR fetch, core invocation, comment) lands in issues #24-#26."
-
-        echo "reviewability=" >> "${GITHUB_OUTPUT}"
-        echo "report-json=" >> "${GITHUB_OUTPUT}"

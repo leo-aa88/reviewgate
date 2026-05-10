@@ -2,8 +2,10 @@
 
 Validates ``X-Hub-Signature-256`` using the configured webhook secret, then
 enqueues a lightweight Dramatiq message carrying delivery metadata so the HTTP
-request returns quickly (§13.3). The actor module is imported inside the handler
-so FastAPI lifespan can install the Redis broker first. Payload persistence and
+request returns quickly (§13.3). The actor module is imported inside the handler after
+:func:`reviewgate.app.analysis.broker_install.install_redis_broker` runs so the
+broker matches ``REVIEWGATE_REDIS_URL`` (and not Dramatiq's implicit default).
+Payload persistence and
 delivery dedupe are handled in later issues (#34, #50).
 """
 
@@ -16,6 +18,7 @@ from typing import Final
 from fastapi import APIRouter, HTTPException, Request, Response, status
 from pydantic import SecretStr
 
+from reviewgate.app.analysis.broker_install import install_redis_broker
 from reviewgate.app.settings import AppSettings
 
 router = APIRouter()
@@ -66,6 +69,8 @@ async def github_webhook(request: Request) -> Response:
             status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Redis URL is not configured for job enqueue",
         )
+
+    install_redis_broker(settings)
 
     delivery_id = request.headers.get("x-github-delivery", "")
     event_name = request.headers.get("x-github-event", "")

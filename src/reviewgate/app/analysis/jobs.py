@@ -3,8 +3,9 @@
 ``docs/DESIGN.md`` §13.7 recommends Dramatiq + Redis so webhooks never block on
 analysis or LLM calls. This module defines **actors only**; the Redis broker is
 installed via :func:`reviewgate.app.analysis.broker_install.install_redis_broker`
-during FastAPI lifespan (issue #33) or in :mod:`reviewgate.app.analysis.worker_app`
-before this module is first imported by the Dramatiq CLI.
+from the GitHub webhook handler (issue #33) or in
+:mod:`reviewgate.app.analysis.worker_app` before this module is first imported
+by the Dramatiq CLI.
 
 Retry and backoff defaults target GitHub and LLM rate limits: a modest number
 of retries with exponentially capped backoff (milliseconds, Dramatiq

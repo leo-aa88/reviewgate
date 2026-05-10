@@ -12,8 +12,9 @@ The actor module is imported only on the enqueue path after
 :func:`reviewgate.app.analysis.broker_install.install_redis_broker` runs.
 Delivery dedupe persists ``X-GitHub-Delivery`` to ``webhook_deliveries``; the
 pull-request enqueue path requires ``REVIEWGATE_DATABASE_URL`` and
-``REVIEWGATE_REDIS_URL`` (issue #34). Payload persistence for analyses is handled
-in later issues (#50).
+``REVIEWGATE_REDIS_URL`` (issue #34). Rapid ``synchronize`` bursts coalesce via
+Redis ``SET … NX EX`` (``docs/DESIGN.md`` §13.7, issue #45). Payload persistence
+for analyses is handled in later issues (#50).
 """
 
 from __future__ import annotations
@@ -23,12 +24,16 @@ import hmac
 import json
 from typing import Any, Final
 
+import redis.exceptions
 from fastapi import APIRouter, HTTPException, Request, Response, status
 from pydantic import SecretStr
 from sqlalchemy.exc import OperationalError
 from starlette.concurrency import run_in_threadpool
 
 from reviewgate.app.analysis.broker_install import install_redis_broker
+from reviewgate.app.analysis.synchronize_debounce import (
+    synchronize_debounce_allows_enqueue,
+)
 from reviewgate.app.settings import AppSettings
 from reviewgate.app.webhooks.dedupe import claim_github_webhook_delivery
 from reviewgate.app.webhooks.enqueue_policy import pull_request_may_enqueue
@@ -267,6 +272,26 @@ async def github_webhook(request: Request) -> Response:
         ) from exc
 
     if not may_enqueue:
+        return Response(status_code=status.HTTP_202_ACCEPTED)
+
+    try:
+        debounce_allows = await run_in_threadpool(
+            synchronize_debounce_allows_enqueue,
+            settings,
+            payload_obj,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+    except redis.exceptions.RedisError as exc:
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Temporary Redis error while coalescing synchronize webhooks",
+        ) from exc
+
+    if not debounce_allows:
         return Response(status_code=status.HTTP_202_ACCEPTED)
 
     install_redis_broker(settings)

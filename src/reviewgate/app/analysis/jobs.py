@@ -61,8 +61,9 @@ def run_pr_analysis_stub(payload: dict[str, object]) -> None:
 def purge_old_webhook_deliveries(_payload: dict[str, object] | None = None) -> None:
     """Delete ``webhook_deliveries`` rows older than 30 days (§16.1).
 
-    Scheduled from :mod:`reviewgate.app.analysis.worker_app` once per worker
-    process. No-ops when ``REVIEWGATE_DATABASE_URL`` is unset.
+    The worker process invokes :meth:`dramatiq.Actor.fn` from a housekeeping
+    thread once per day (see :mod:`reviewgate.app.analysis.worker_app`). The
+    actor remains available for explicit ``send`` from thread-safe contexts.
 
     Args:
         _payload: Unused; kept so callers can ``send({})`` like other actors.

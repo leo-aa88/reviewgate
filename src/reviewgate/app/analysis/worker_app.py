@@ -45,9 +45,12 @@ def _schedule_daily_webhook_purge() -> None:
     def _target() -> None:
         while True:
             try:
-                _reviewgate_analysis_jobs.purge_old_webhook_deliveries.send({})
+                # Call the actor function directly: ``.send`` is not thread-safe
+                # from this background thread (Dramatiq broker is owned by worker
+                # threads).
+                _reviewgate_analysis_jobs.purge_old_webhook_deliveries.fn({})
             except Exception:
-                logger.exception("enqueue purge_old_webhook_deliveries failed")
+                logger.exception("purge_old_webhook_deliveries failed")
             time.sleep(24 * 3600)
 
     threading.Thread(

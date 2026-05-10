@@ -1,8 +1,9 @@
 """FastAPI ASGI application for the hosted ReviewGate GitHub App (§15 / §17.2).
 
 This module defines the production ``app`` object consumed by ASGI servers
-such as uvicorn. Webhook routes and dependency wiring land in later issues
-(#33 onward); only the §17.2 health probe is exposed here.
+such as uvicorn. It wires the §17.2 health probe, the §17.1 GitHub webhook
+route (issue #33), and optional Dramatiq broker startup when Redis is
+configured.
 
 Example:
     In-process ASGI tests::
@@ -16,7 +17,26 @@ Example:
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
+
+from reviewgate.app.settings import AppSettings
+from reviewgate.app.webhooks import github_router
+
+
+@asynccontextmanager
+async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
+    """Install Dramatiq broker during API startup when Redis is available."""
+
+    settings = AppSettings()
+    app.state.settings = settings
+    if settings.redis_url is not None:
+        from reviewgate.app.analysis.broker_install import install_redis_broker
+
+        install_redis_broker(settings)
+    yield
 
 
 def create_app() -> FastAPI:
@@ -25,8 +45,11 @@ def create_app() -> FastAPI:
     application = FastAPI(
         title="ReviewGate",
         version="0.1.0",
-        summary="Hosted GitHub App HTTP surface (skeleton; issue #32).",
+        summary="Hosted GitHub App HTTP surface.",
+        lifespan=_lifespan,
     )
+
+    application.include_router(github_router)
 
     @application.get("/health")
     def health() -> dict[str, bool]:

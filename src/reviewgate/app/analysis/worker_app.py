@@ -9,28 +9,17 @@ The companion console script ``reviewgate-worker`` wraps the same invocation
 (see :mod:`reviewgate.app.analysis.worker_cli`).
 
 Raises:
-    RuntimeError: If ``REVIEWGATE_REDIS_URL`` is unset. Workers always require
-        Redis in real deployments; unit tests should use
-        :class:`dramatiq.brokers.stub.StubBroker` with :mod:`~reviewgate.app.analysis.jobs`
-        directly instead of importing this module.
+    RuntimeError: If ``REVIEWGATE_REDIS_URL`` is unset (see
+        :func:`reviewgate.app.analysis.broker_install.install_redis_broker`).
 """
 
 from __future__ import annotations
 
-import dramatiq
-from dramatiq.brokers.redis import RedisBroker
-
+from reviewgate.app.analysis.broker_install import install_redis_broker
 from reviewgate.app.settings import AppSettings
 
 _settings = AppSettings()
-if _settings.redis_url is None:
-    msg = (
-        "REVIEWGATE_REDIS_URL must be set before starting Dramatiq workers "
-        "(see docs/QUICKSTART.md, hosted dev section)."
-    )
-    raise RuntimeError(msg)
-
-dramatiq.set_broker(RedisBroker(url=_settings.redis_url))
+install_redis_broker(_settings)
 
 # Broker must exist before actor modules import (Dramatiq registers on import).
 from reviewgate.app.analysis import jobs as _reviewgate_analysis_jobs  # noqa: E402,F401

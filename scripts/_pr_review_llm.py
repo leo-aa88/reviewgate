@@ -1,0 +1,489 @@
+"""LLM-side helpers for ``post_pr_llm_review.py``.
+
+This module owns everything that depends on the OpenAI API: the structured-
+output JSON schema, the system prompt, the diff parser, and the chat call
+itself. Keeping it separate lets the orchestration script stay under the
+project's per-file LOC budget and lets the prompt/schema be edited without
+touching GitHub API plumbing.
+
+The diff parser builds the allowed-anchor map that the runtime uses to
+validate inline comments before posting to GitHub's Reviews API, so a
+hallucinated ``(path, line)`` anchor never reaches the wire.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import re
+import ssl
+import urllib.request
+from typing import Final, TypeAlias, TypeGuard
+
+# Closed type for any value that survives a `json.loads` round-trip. We
+# avoid `typing.Any` because the project rule requires every `Any` to be
+# justified; JSON I/O is exactly the place where shape is unknown but the
+# set of possible values is closed, so `JsonValue` carries that intent.
+JsonValue: TypeAlias = (
+    "None | bool | int | float | str | list[JsonValue] | dict[str, JsonValue]"
+)
+JsonObject: TypeAlias = "dict[str, JsonValue]"
+
+# `path -> set of valid RIGHT-side line numbers an inline comment can anchor to`.
+DiffIndex: TypeAlias = "dict[str, set[int]]"
+
+
+def _is_json_value(value: object) -> TypeGuard[JsonValue]:
+    """Recursively verify that ``value`` is a fully-typed :data:`JsonValue`.
+
+    The :data:`JsonValue` alias is closed: anything that survives
+    ``json.loads`` *and* fits the alias definition. Without this guard,
+    a top-level ``isinstance(parsed, dict)`` check would let arbitrary
+    objects (e.g. non-string keys, ``set`` values from a faked
+    deserializer) leak through as ``Any``-shaped data and undermine the
+    rest of the type system. The guard is intentionally strict:
+    non-``str`` keys are rejected, and every nested element must
+    itself be a :data:`JsonValue`.
+    """
+
+    if value is None or isinstance(value, (bool, int, float, str)):
+        return True
+    if isinstance(value, list):
+        return all(_is_json_value(v) for v in value)
+    if isinstance(value, dict):
+        return all(
+            isinstance(k, str) and _is_json_value(v) for k, v in value.items()
+        )
+    return False
+
+
+def _is_json_object(value: object) -> TypeGuard[JsonObject]:
+    """Verify that ``value`` is a :data:`JsonObject` (str-keyed JSON dict).
+
+    Used by :func:`call_openai_review` to harden the contract on the
+    decoded chat-completions content: a top-level ``dict`` is necessary
+    but not sufficient.
+    """
+
+    return isinstance(value, dict) and _is_json_value(value)
+
+DEFAULT_MODEL: Final[str] = "gpt-5.4"
+OPENAI_TIMEOUT_SECS: Final[int] = 240
+LLM_MAX_OUTPUT_TOKENS: Final[int] = 4096
+
+
+# Diff parsing -----------------------------------------------------------------
+
+_HUNK_HEADER_RE: Final = re.compile(
+    r"^@@ -\d+(?:,\d+)? \+(?P<start>\d+)(?:,\d+)? @@"
+)
+
+
+def parse_diff_right_side(diff_text: str) -> DiffIndex:
+    """Build a map of file path → RIGHT-side line numbers each hunk covers.
+
+    Only context (``" "``) and added (``"+"``) lines on the RIGHT side are
+    indexed: those are the only positions GitHub will accept for an inline
+    review comment with ``side: RIGHT``. Pure-deletion, rename-only, and
+    binary entries yield no entries (no RIGHT-side body to anchor to).
+
+    Args:
+        diff_text: Unified diff in the format returned by GitHub's
+            ``application/vnd.github.diff`` accept header.
+
+    Returns:
+        Mapping of post-image file path (e.g. ``src/foo.py``) to the set of
+        line numbers in that file that an inline review comment may target.
+    """
+    index: DiffIndex = {}
+    current_path: str | None = None
+    line_no = 0
+    in_hunk = False
+    for raw in diff_text.splitlines():
+        if raw.startswith("diff --git "):
+            current_path = None
+            in_hunk = False
+            continue
+        if raw.startswith("+++ "):
+            target = raw[4:].strip()
+            if target == "/dev/null":
+                current_path = None
+            elif target.startswith("b/"):
+                current_path = target[2:]
+                index.setdefault(current_path, set())
+            else:
+                current_path = target
+                index.setdefault(current_path, set())
+            in_hunk = False
+            continue
+        if raw.startswith("--- "):
+            in_hunk = False
+            continue
+        m = _HUNK_HEADER_RE.match(raw)
+        if m is not None:
+            if current_path is None:
+                in_hunk = False
+                continue
+            line_no = int(m.group("start"))
+            in_hunk = True
+            continue
+        if not in_hunk or current_path is None:
+            continue
+        if not raw:
+            # Blank body line is a context line on both sides; advance RIGHT.
+            index[current_path].add(line_no)
+            line_no += 1
+            continue
+        marker = raw[0]
+        if marker in ("+", " "):
+            index[current_path].add(line_no)
+            line_no += 1
+        elif marker == "-":
+            # Consumed by LEFT side only; do not advance RIGHT counter.
+            continue
+        elif marker == "\\":
+            # "\ No newline at end of file" — metadata, no line consumed.
+            continue
+        else:
+            in_hunk = False
+    return index
+
+
+def format_anchor_map(diff_index: DiffIndex) -> str:
+    """Render the per-file allowed-anchor index for the user prompt.
+
+    The model uses this list to pick valid ``(path, line)`` targets; the
+    runtime re-validates and demotes any out-of-range anchor before posting
+    so the GitHub Reviews API never returns 422.
+    """
+    if not diff_index:
+        return "(no RIGHT-side hunks in this diff)"
+    parts: list[str] = []
+    for path in sorted(diff_index):
+        lines = sorted(diff_index[path])
+        if not lines:
+            continue
+        ranges: list[str] = []
+        run_start = lines[0]
+        prev = lines[0]
+        for n in lines[1:]:
+            if n == prev + 1:
+                prev = n
+                continue
+            ranges.append(
+                f"{run_start}" if run_start == prev else f"{run_start}-{prev}"
+            )
+            run_start = n
+            prev = n
+        ranges.append(
+            f"{run_start}" if run_start == prev else f"{run_start}-{prev}"
+        )
+        parts.append(f"- {path}: {', '.join(ranges)}")
+    return "\n".join(parts) if parts else "(no RIGHT-side hunks in this diff)"
+
+
+# Structured output schema ----------------------------------------------------
+
+REVIEW_JSON_SCHEMA: Final[JsonObject] = {
+    "name": "pr_review",
+    "strict": True,
+    "schema": {
+        "type": "object",
+        "additionalProperties": False,
+        "required": ["verdict", "summary", "inline_comments", "general_comments"],
+        "properties": {
+            "verdict": {
+                "type": "string",
+                "enum": ["request_changes", "comment"],
+            },
+            "summary": {"type": "string"},
+            "inline_comments": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "required": ["path", "line", "severity", "body", "quoted_line"],
+                    "properties": {
+                        "path": {"type": "string"},
+                        "line": {"type": "integer"},
+                        "severity": {
+                            "type": "string",
+                            "enum": ["must", "should", "nit"],
+                        },
+                        "body": {"type": "string"},
+                        "quoted_line": {"type": "string"},
+                    },
+                },
+            },
+            "general_comments": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "required": ["severity", "body", "evidence"],
+                    "properties": {
+                        "severity": {
+                            "type": "string",
+                            "enum": ["must", "should", "nit"],
+                        },
+                        "body": {"type": "string"},
+                        # `evidence` MUST be either a verbatim substring of the
+                        # diff (>= MIN_EVIDENCE_LEN chars) or "" for true
+                        # cross-cutting concerns (no specific anchor line).
+                        # The runtime drops `must` general comments with empty
+                        # evidence and any general comment whose non-empty
+                        # evidence is not present in the diff. See
+                        # `_filter_general_comments`.
+                        "evidence": {"type": "string"},
+                    },
+                },
+            },
+        },
+    },
+}
+
+
+SYSTEM_PROMPT: Final[str] = """\
+You are a senior Python reviewer for a strict, type-disciplined codebase \
+(Python 3.12, mypy --strict semantics, Google-style docstrings on public \
+APIs, pyproject-managed). You receive a unified diff. Your job is to find \
+real defects and force fixes. Treat the patch as a hostile submission: \
+assume the author is competent but cutting corners, missing edge cases, \
+or papering over deeper issues. This bot never approves; verdict is \
+either `request_changes` (any `must` finding) or `comment` (only \
+`should` / `nit` findings). Branch protection that requires a human \
+review must not be satisfied by this bot.
+
+Hard constraints (anti-hallucination -- runtime enforces)
+- Every claim must be grounded in a line that appears in the diff you \
+were given. The diff is the only source of truth; do NOT rely on \
+training-set memory of how this codebase "usually" looks.
+- For each `inline_comments` entry, fill `quoted_line` with the exact \
+text of the line from the diff (no leading '+', no edits, no reflow). \
+The runtime re-parses the diff and drops anchors that are not in it.
+- For each `general_comments` entry, fill `evidence` with EITHER a \
+verbatim substring of a diff line that supports the claim (at least \
+8 characters; longer is better), OR an empty string for a true \
+cross-cutting concern (e.g. "no test added for the new branch"). The \
+runtime checks every `evidence` field against the diff text and \
+DROPS:
+  * any `must` general comment with empty `evidence`, and
+  * any general comment whose non-empty `evidence` is not a substring \
+of the diff.
+Inventing or paraphrasing `evidence` will cause the finding to be \
+silently dropped, and a `::warning::` will be emitted to the CI log \
+naming the comment that was dropped. Do not bypass the check; if you \
+cannot quote the diff verbatim, drop the claim.
+- When you assert that a definition is missing something (docstring, \
+type annotation, error handling, etc.), the `def` / `class` / \
+signature line of the target MUST appear in the diff. The diff showing \
+only a CALL of a function is NOT enough to judge its definition. If \
+the relevant definition line is not in the diff, drop the claim.
+- Common hallucinations to avoid:
+  * Claiming a function lacks a Google-style docstring when the diff \
+shows a triple-quoted string immediately after the `def` line.
+  * Claiming a function lacks a `-> Type` return annotation when the \
+diff shows `) -> ...:` on the signature line.
+  * Restating items from this prompt's checklist without finding them \
+in the diff. The prompt is a guide, not a list of findings to emit.
+- Do not comment on whole-file properties you cannot measure from a \
+diff (file length, total LOC, package layout, anything outside the \
+changed hunks).
+- Inline comments must target a `path` and `line` that appear in the \
+allowed-anchors map provided in the user message. If you cannot anchor \
+a concern, put it in `general_comments` instead and supply `evidence`.
+- Prefer inline over general. Use `general_comments` only for true \
+cross-cutting concerns (e.g. missing test for a new branch). For \
+those, set `evidence: ""` -- but only at severity `should` or `nit`. \
+A `must` finding without diff evidence is by definition unverifiable \
+and will be dropped.
+- Write each `body` as: <one-sentence problem>. <one concrete fix with \
+code or a specific instruction>. Never write "consider" or "you might \
+want to"; say "do X".
+- No filler. Empty arrays are fine. Do not pad with nits to look \
+thorough. If you have nothing grounded to say, return empty arrays \
+and verdict `comment`.
+
+Severity policy -- read this BEFORE classifying anything
+
+`must` is reserved for things that actually block merge. The list is \
+short and exhaustive: if your finding is not on this list, it is at \
+most `should`, no matter how strongly you feel about it. The runtime \
+will downgrade common over-classifications (test-coverage gaps, \
+documentation asks, schema-drift assertions) on its own; preempt that \
+by classifying correctly here.
+
+Severity = must (the entire list)
+1. Concurrency hazard introduced by this diff -- shared mutable state, \
+async without cancellation, a missing lock/guard around a write, a \
+race in a test.
+2. Behavior change not called out in the PR description: rename, \
+signature change, exception-type change, JSON schema field rename or \
+removal. The renamed/changed symbol's def or usage line must be in the \
+diff.
+3. Concrete data-loss, security, or production-outage risk on a line \
+present in the diff. "Concrete" means: you can point at the diff line \
+and describe a specific input that triggers the harm. "There is no \
+test, therefore something might break" is NOT concrete.
+4. The diff itself adds a failing or empty assertion, an `assert True`, \
+or a test that asserts on its own input. (Test fraud, not test gap.)
+
+Everything else is `should` or `nit`. In particular, the following are \
+NEVER `must`, even if the project's documented standard says they are:
+
+- Missing Google-style docstring on a new public function/class/module.
+- Missing type annotation, new `Any`, broad `except`, or \
+`# type: ignore` without justification.
+- Magic literal without a named constant.
+- Test coverage gap of any kind, including:
+  * "Add a test for the new branch / new field / new code path."
+  * "Add a regression / serialization / round-trip / completeness / \
+forward-compatibility test."
+  * "The new field is not exercised through `model_dump()`."
+  * "Missing failure-path / error-path / edge-case test."
+  These are coverage asks, not defects. Classify as `should`. The \
+runtime will downgrade `must` coverage asks automatically if you \
+ignore this rule, and a `::warning::` will be emitted naming you.
+- DRY/SOLID violation, naming that hides intent, structural code-smell.
+- Backwards-compat shim, dead branch, unreachable code (unless the \
+unreachability is itself a security/correctness bug).
+- Whole-file properties (file length, package layout, module-split \
+opinions) -- drop entirely if the full file is not in the diff.
+- Asks about README / DESIGN.md / CHANGELOG when those files are not \
+in the diff -- drop entirely.
+- Disagreement with a design choice the PR description explicitly \
+justifies. State your disagreement at `should` or drop it.
+
+Severity = should
+- DRY/SOLID violation the diff actually introduces.
+- Naming that hides intent.
+- Missing docstring / type annotation / named constant on diff lines.
+- Test coverage gaps (see list above).
+- Disagreement with a documented design choice.
+- Test that passes for the wrong reason.
+
+Severity = nit
+- Pure style, no behavior change. Be sparing.
+
+Verdict
+- `request_changes` if there is any `must`.
+- `comment` if there are only `should` or `nit` items, or no findings.
+
+Output JSON only, matching the supplied schema. No prose outside the JSON.
+"""
+
+
+# OpenAI call -----------------------------------------------------------------
+
+
+def call_openai_review(
+    diff_text: str,
+    *,
+    repo: str,
+    pr_number: int,
+    diff_index: DiffIndex,
+) -> JsonObject:
+    """Call the configured OpenAI chat-completions endpoint and return JSON.
+
+    The call uses ``response_format = json_schema`` so the model cannot
+    drift into prose; the returned dict matches `REVIEW_JSON_SCHEMA`. The
+    caller is responsible for re-validating inline-comment anchors against
+    ``diff_index``.
+
+    Args:
+        diff_text: Unified diff (possibly truncated for the model's input
+            window). The full diff is what the model reasons over.
+        repo: ``owner/name`` slug, included in the user prompt for context.
+        pr_number: Pull request number, included in the user prompt.
+        diff_index: Mapping of valid RIGHT-side anchors, rendered into the
+            user prompt so the model knows which anchors will be accepted.
+
+    Returns:
+        Parsed JSON object matching `REVIEW_JSON_SCHEMA`.
+
+    Raises:
+        RuntimeError: If the OpenAI response is missing the expected
+            ``choices[0].message.content`` field or that content does not
+            decode as a JSON object.
+        KeyError: If ``OPENAI_API_KEY`` is not set in the environment.
+    """
+    api_key = os.environ["OPENAI_API_KEY"]
+    model = os.environ.get("OPENAI_MODEL") or DEFAULT_MODEL
+    base = (
+        os.environ.get("OPENAI_BASE_URL") or "https://api.openai.com/v1"
+    ).rstrip("/")
+    url = f"{base}/chat/completions"
+
+    user = (
+        f"Repository: {repo}\n"
+        f"PR: #{pr_number}\n"
+        "\n"
+        "Allowed inline-comment anchors (path: RIGHT-side line numbers).\n"
+        "Inline comments outside this set will be dropped before posting.\n"
+        "\n"
+        f"{format_anchor_map(diff_index)}\n"
+        "\n"
+        "Unified diff follows.\n"
+        "\n"
+        f"```diff\n{diff_text}\n```"
+    )
+
+    payload: JsonObject = {
+        "model": model,
+        "max_completion_tokens": LLM_MAX_OUTPUT_TOKENS,
+        "messages": [
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": user},
+        ],
+        "response_format": {
+            "type": "json_schema",
+            "json_schema": REVIEW_JSON_SCHEMA,
+        },
+    }
+    req = urllib.request.Request(
+        url, data=json.dumps(payload).encode(), method="POST"
+    )
+    req.add_header("Authorization", f"Bearer {api_key}")
+    req.add_header("Content-Type", "application/json")
+    ctx = ssl.create_default_context()
+    with urllib.request.urlopen(req, timeout=OPENAI_TIMEOUT_SECS, context=ctx) as resp:
+        data = json.loads(resp.read().decode())
+    content = _extract_openai_content(data)
+    if isinstance(content, str):
+        try:
+            parsed = json.loads(content)
+        except json.JSONDecodeError as exc:
+            raise RuntimeError(
+                f"OpenAI returned invalid JSON content: {content!r}"
+            ) from exc
+    else:
+        parsed = content
+    if not _is_json_object(parsed):
+        raise RuntimeError(f"OpenAI returned non-JsonObject content: {content!r}")
+    return parsed
+
+
+def _extract_openai_content(data: object) -> object:
+    """Walk the chat-completions response shape with explicit type checks.
+
+    The previous implementation wrapped the chained attribute lookup in
+    ``try/except (KeyError, IndexError, TypeError)``; that catches a
+    superset of the conditions we actually want to translate into
+    ``RuntimeError`` and could mask an unrelated ``TypeError`` from
+    deeper in the call stack. Each missing/wrongly-shaped field is
+    validated explicitly so any non-shape error from elsewhere
+    propagates unchanged.
+    """
+
+    if not isinstance(data, dict):
+        raise RuntimeError(f"Unexpected OpenAI response shape: {data!r}")
+    choices = data.get("choices")
+    if not isinstance(choices, list) or not choices:
+        raise RuntimeError(f"Unexpected OpenAI response shape: {data!r}")
+    first = choices[0]
+    if not isinstance(first, dict):
+        raise RuntimeError(f"Unexpected OpenAI response shape: {data!r}")
+    message = first.get("message")
+    if not isinstance(message, dict) or "content" not in message:
+        raise RuntimeError(f"Unexpected OpenAI response shape: {data!r}")
+    return message["content"]

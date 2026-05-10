@@ -23,6 +23,7 @@ from .config import DEFAULT_RISKY_PATHS, ReviewGateConfig
 from .linked_issue import linked_issue_warning
 from .mixed_concern import mixed_concern_warning
 from .pr_body import weak_body_warning
+from .report import suggested_labels
 from .risky_paths import risky_paths_warning
 from .schemas import EngineInput, EngineWarning, ReviewabilityReport
 from .size import compute_size_stats, size_warnings
@@ -99,10 +100,12 @@ def analyze(engine_input: EngineInput) -> ReviewabilityReport:
     if mixed_warning is not None:
         warnings.append(mixed_warning)
 
+    verdict = baseline_reviewability(warnings)
     return ReviewabilityReport(
-        reviewability=baseline_reviewability(warnings),
+        reviewability=verdict,
         stats=stats.model_dump(),
         warnings=warnings,
+        suggested_labels=suggested_labels(verdict, warnings, config.labels),
         file_categories=file_categories,
     )
 

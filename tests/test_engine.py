@@ -353,6 +353,108 @@ def test_analyze_emits_mixed_concern_warning_on_three_risk_categories() -> None:
     ]
 
 
+def test_analyze_emits_suggested_labels_for_clean_pr() -> None:
+    """\u00a710.2 + \u00a713.9: even a PASS PR carries the verdict label."""
+
+    engine_input = EngineInput(
+        pr=_pr(additions=10, deletions=2, changed_files=1),
+        files=[_file("README.md", changes=12)],
+    )
+    report = analyze(engine_input)
+    assert report.suggested_labels == ["reviewability-pass"]
+
+
+def test_analyze_emits_suggested_labels_for_multi_warning_pr() -> None:
+    """All four concern labels appear once for a PR that trips every heuristic."""
+
+    files = [_file(f"src/auth/mod{i}.py", changes=100) for i in range(80)]
+    files.append(_file("billing/invoice.py", changes=10))
+    files.append(_file("infra/k8s/main.yaml", changes=5))
+    engine_input = EngineInput(
+        pr=_pr(
+            additions=8015,
+            deletions=0,
+            changed_files=len(files),
+            body="",
+        ),
+        files=files,
+    )
+    report = analyze(engine_input)
+    assert report.suggested_labels == [
+        "reviewability-fail",
+        "too-large",
+        "missing-context",
+        "risky-change",
+        "needs-split",
+    ]
+
+
+def test_reviewability_report_serializes_suggested_labels_field() -> None:
+    """\u00a710.2 + \u00a713.9: ``suggested_labels`` survives a Pydantic round-trip.
+
+    Schema-shape regression for :class:`ReviewabilityReport`. If the
+    field is dropped, renamed, or excluded from ``model_dump`` (e.g. by
+    an accidental ``exclude=...`` in a ``ConfigDict`` change), this
+    test fails immediately rather than silently shipping reviews
+    without the labels downstream consumers expect.
+    """
+
+    engine_input = EngineInput(
+        pr=_pr(additions=10, deletions=2, changed_files=1, body=""),
+        files=[_file("README.md", changes=12)],
+    )
+    report = analyze(engine_input)
+    dumped = report.model_dump()
+
+    assert "suggested_labels" in dumped
+    assert dumped["suggested_labels"] == report.suggested_labels
+    assert dumped["suggested_labels"] == [
+        "reviewability-warn",
+        "missing-context",
+    ]
+
+
+def test_analyze_emits_suggested_labels_for_warn_verdict() -> None:
+    """\u00a710.2 + \u00a713.9: WARN PRs surface the warn verdict label and concerns.
+
+    Constructs a PR that fires exactly the linked-issue (#12) and
+    weak-body (#11) heuristics so the \u00a710.13 aggregator returns WARN
+    (two ``medium`` warnings, no ``high``). The warn verdict label
+    must come first, followed by the single ``missing_context``
+    concern label that both heuristics share.
+    """
+
+    engine_input = EngineInput(
+        pr=_pr(
+            additions=10,
+            deletions=2,
+            changed_files=1,
+            body="",  # empty -> weak_pr_body + missing_linked_issue
+        ),
+        files=[_file("README.md", changes=12)],
+    )
+    report = analyze(engine_input)
+
+    warn_verdict: Reviewability = "WARN"
+    assert report.reviewability == warn_verdict
+    assert report.suggested_labels == [
+        "reviewability-warn",
+        "missing-context",
+    ]
+
+
+def test_analyze_propagates_user_label_overrides_via_config() -> None:
+    """\u00a712 ``labels`` overrides flow into ``suggested_labels`` end to end."""
+
+    engine_input = EngineInput(
+        pr=_pr(additions=10, deletions=2, changed_files=1),
+        files=[_file("README.md", changes=12)],
+        config={"labels": {"pass": "rg/pass-label"}},
+    )
+    report = analyze(engine_input)
+    assert report.suggested_labels == ["rg/pass-label"]
+
+
 def test_analyze_does_not_emit_mixed_concern_for_focused_pr() -> None:
     """\u00a710.11 normal: source + tests + docs PR stays silent on mixed-concern."""
 

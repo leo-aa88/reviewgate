@@ -7,20 +7,23 @@ operations so messages land in the same Redis-backed queue.
 
 from __future__ import annotations
 
+import threading
+
 import dramatiq
 from dramatiq.brokers.redis import RedisBroker
 
 from reviewgate.app.settings import AppSettings
 
 _last_installed_redis_url: str | None = None
+_install_lock = threading.Lock()
 
 
 def install_redis_broker(settings: AppSettings) -> None:
     """Configure the process-global Dramatiq broker backed by Redis.
 
     Idempotent for repeated calls with the same ``redis_url`` in one process
-    (e.g. multiple webhook deliveries after :func:`install_redis_broker` was
-    already invoked from startup or a prior request).
+    (e.g. multiple webhook deliveries). A lock serializes installation so
+    concurrent requests cannot leave Dramatiq bound to a stale broker.
 
     Args:
         settings: Loaded settings; ``redis_url`` must be non-empty.
@@ -39,8 +42,8 @@ def install_redis_broker(settings: AppSettings) -> None:
         raise RuntimeError(msg)
 
     url = str(settings.redis_url)
-    if _last_installed_redis_url == url:
-        return
-
-    dramatiq.set_broker(RedisBroker(url=url))
-    _last_installed_redis_url = url
+    with _install_lock:
+        if _last_installed_redis_url == url:
+            return
+        dramatiq.set_broker(RedisBroker(url=url))
+        _last_installed_redis_url = url

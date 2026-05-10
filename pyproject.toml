@@ -40,7 +40,11 @@ testpaths = ["tests"]
 # `tests` is on the import path so test modules can pull shared fixtures
 # from `tests/fixtures/...` without per-test sys.path shims (issue #17
 # golden fixture manifest, see `tests/fixtures/m2_golden/manifest.py`).
-pythonpath = ["src", "tests"]
+# `reviewgate-action/src` is added so the open-source GitHub Action
+# runtime modules (`reviewgate_action.*`, see `reviewgate-action/src/`)
+# are importable from `tests/test_fetch_pr.py` and friends without an
+# extra editable install at test time.
+pythonpath = ["src", "tests", "reviewgate-action/src"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/reviewgate"]

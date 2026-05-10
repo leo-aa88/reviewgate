@@ -23,9 +23,9 @@ pytest
 
 The open-source GitHub Action wrapper lives in [`reviewgate-action/`](reviewgate-action/).
 
-> **Status: scaffold (issue #23). Do not pin this Action as a required status check yet.** The composite step validates inputs and **exits non-zero** until the runtime lands in issues #24, #25, and #26. The fail-closed posture exists so a workflow that adds the Action to branch protection cannot silently mark a PR mergeable while review logic is still missing.
+> **Status: runtime preview (issues #24 + #25 landed; #26 pending).** The Action fetches PR metadata, loads `.reviewgate.yml`, runs the deterministic engine, and applies the §14 `fail-on` policy. The optional PR-comment upsert and `mode` coexistence skip behaviour land in #26; the `post-comment` and `mode` inputs are accepted today but otherwise no-ops. Pinning the Action as a required status check is now safe: the engine result drives the workflow exit code.
 
-Reference workflow (verbatim from `docs/DESIGN.md` §14, intended for use once the runtime PRs land):
+Reference workflow (verbatim from `docs/DESIGN.md` §14):
 
 ```yaml
 name: ReviewGate

@@ -20,7 +20,10 @@ import reviewgate.app.webhooks.github as github_webhook_module
 from reviewgate.app.analysis import broker_install
 from reviewgate.app.main import create_app
 
-_PR_OPENED_BODY = b'{"action":"opened","number":1}'
+_PR_OPENED_BODY = (
+    b'{"action":"opened","number":1,'
+    b'"installation":{"id":1111},"repository":{"id":2222}}'
+)
 
 
 @pytest.fixture(autouse=True)
@@ -55,6 +58,17 @@ def _stub_persist_installation_payload(monkeypatch: pytest.MonkeyPatch) -> None:
         github_webhook_module,
         "persist_installation_webhook_payload",
         lambda *_a, **_k: None,
+    )
+
+
+@pytest.fixture(autouse=True)
+def _stub_pull_request_may_enqueue(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Avoid live Postgres on the ``pull_request`` enqueue guard (issue #36)."""
+
+    monkeypatch.setattr(
+        github_webhook_module,
+        "pull_request_may_enqueue",
+        lambda *_a, **_k: True,
     )
 
 
@@ -228,13 +242,40 @@ def test_github_webhook_installation_created_without_redis(
     send.assert_not_called()
 
 
-def test_github_webhook_installation_deleted_returns_204(
+def test_github_webhook_installation_deleted_legacy_204_shim(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """``installation`` ``deleted`` is out of scope for persistence (issue #36)."""
+    """Optional rollback flag restores the pre-#36 **204** no-op for ``deleted``."""
 
     monkeypatch.setenv("REVIEWGATE_GITHUB_WEBHOOK_SECRET", "whsec")
-    body = b'{"action":"deleted","installation":{"id":1,"account":{"login":"x","type":"User"}}}'
+    monkeypatch.setenv("REVIEWGATE_LEGACY_INSTALLATION_DELETED_WEBHOOK_204", "true")
+    body = b'{"action":"deleted","installation":{"id":1}}'
+    with patch.object(
+        github_webhook_module,
+        "persist_installation_webhook_payload",
+    ) as persist:
+        with TestClient(create_app()) as client:
+            response = client.post(
+                "/webhooks/github",
+                content=body,
+                headers={
+                    "x-hub-signature-256": _signature(body, "whsec"),
+                    "x-github-delivery": "del-legacy",
+                    "x-github-event": "installation",
+                },
+            )
+    assert response.status_code == 204
+    persist.assert_not_called()
+
+
+def test_github_webhook_installation_deleted_persists(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``installation`` ``deleted`` is persisted like other mutation events (#36)."""
+
+    monkeypatch.setenv("REVIEWGATE_GITHUB_WEBHOOK_SECRET", "whsec")
+    monkeypatch.delenv("REVIEWGATE_LEGACY_INSTALLATION_DELETED_WEBHOOK_204", raising=False)
+    body = b'{"action":"deleted","installation":{"id":1}}'
     with patch.object(
         github_webhook_module,
         "persist_installation_webhook_payload",
@@ -249,8 +290,9 @@ def test_github_webhook_installation_deleted_returns_204(
                     "x-github-event": "installation",
                 },
             )
-    assert response.status_code == 204
-    persist.assert_not_called()
+    assert response.status_code == 202
+    persist.assert_called_once()
+    assert persist.call_args.kwargs["action"] == "deleted"
 
 
 def test_github_webhook_installation_created_invokes_persist(
@@ -583,7 +625,43 @@ def test_github_webhook_accepts_valid_signature_and_enqueues(
         "github_delivery_id": "abc-123",
         "github_event": "pull_request",
         "github_pull_request_action": "opened",
+        "github_installation_id": 1111,
+        "github_repository_id": 2222,
     }
+
+
+def test_github_webhook_pull_request_when_enqueue_blocked_returns_202(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Soft-deleted installs acknowledge **202** without enqueue (issue #36)."""
+
+    monkeypatch.setenv("REVIEWGATE_GITHUB_WEBHOOK_SECRET", "s")
+    monkeypatch.setenv("REVIEWGATE_REDIS_URL", "redis://127.0.0.1:6379/0")
+    body = _PR_OPENED_BODY
+    with patch.object(
+        github_webhook_module,
+        "pull_request_may_enqueue",
+        return_value=False,
+    ):
+        with patch(
+            "reviewgate.app.analysis.broker_install.RedisBroker",
+            lambda **_: StubBroker(),
+        ):
+            with patch(
+                "reviewgate.app.analysis.jobs.run_pr_analysis_stub.send",
+            ) as send:
+                with TestClient(create_app()) as client:
+                    response = client.post(
+                        "/webhooks/github",
+                        content=body,
+                        headers={
+                            "x-hub-signature-256": _signature(body, "s"),
+                            "x-github-delivery": "blocked-1",
+                            "x-github-event": "pull_request",
+                        },
+                    )
+    assert response.status_code == 202
+    send.assert_not_called()
 
 
 def test_github_webhook_reinstalls_broker_when_redis_url_changes(

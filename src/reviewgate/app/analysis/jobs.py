@@ -32,6 +32,7 @@ import dramatiq
 from reviewgate.app.settings import AppSettings
 from reviewgate.app.storage.db import create_engine_from_settings, create_session_factory
 from reviewgate.app.storage.webhook_purge import purge_webhook_deliveries_older_than
+from reviewgate.app.webhooks.enqueue_policy import installation_repository_may_enqueue_jobs
 
 _MAX_RETRIES: Final[int] = 5
 _MIN_BACKOFF_MS: Final[int] = 30_000
@@ -52,7 +53,30 @@ def run_pr_analysis_stub(payload: dict[str, object]) -> None:
     Args:
         payload: Opaque job envelope (repository id, PR number, head SHA, etc.).
             Kept as ``dict[str, object]`` until the worker contract is frozen.
+            When ``github_installation_id`` and ``github_repository_id`` are set
+            (issue #36), the actor skips work for soft-deleted installations or
+            inactive repositories before the real pipeline exists.
     """
+
+    settings = AppSettings()
+    raw_inst = payload.get("github_installation_id")
+    raw_repo = payload.get("github_repository_id")
+    if (
+        not isinstance(raw_inst, bool)
+        and isinstance(raw_inst, int)
+        and not isinstance(raw_repo, bool)
+        and isinstance(raw_repo, int)
+    ):
+        engine = create_engine_from_settings(settings)
+        if engine is not None:
+            session_factory = create_session_factory(engine)
+            with session_factory() as session:
+                if not installation_repository_may_enqueue_jobs(
+                    session,
+                    github_installation_id=raw_inst,
+                    github_repository_id=raw_repo,
+                ):
+                    return
 
     del payload
 

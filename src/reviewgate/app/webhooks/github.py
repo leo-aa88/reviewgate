@@ -2,9 +2,10 @@
 
 Validates ``X-Hub-Signature-256`` using the configured webhook secret, then
 routes by ``X-GitHub-Event`` per ``docs/DESIGN.md`` §13.2: ``ping`` returns **202**
-without persistence; ``installation`` / ``installation_repositories`` upsert
-``installations`` and ``repositories`` when a database URL is configured (issue
-#35); unsupported installation actions return **204**; ``pull_request`` actions
+without persistence; ``installation`` / ``installation_repositories`` upsert or
+soft-delete ``installations`` and ``repositories`` when a database URL is
+configured (issues #35, #36); unsupported installation actions return **204**;
+``pull_request`` actions
 in ``opened`` / ``synchronize`` / ``reopened`` enqueue a stub job; ``edited``
 enqueues only when ``changes`` touches ``title``, ``body``, or ``base`` (§13.2).
 The actor module is imported only on the enqueue path after
@@ -30,6 +31,7 @@ from starlette.concurrency import run_in_threadpool
 from reviewgate.app.analysis.broker_install import install_redis_broker
 from reviewgate.app.settings import AppSettings
 from reviewgate.app.webhooks.dedupe import claim_github_webhook_delivery
+from reviewgate.app.webhooks.enqueue_policy import pull_request_may_enqueue
 from reviewgate.app.webhooks.installation_persist import persist_installation_webhook_payload
 
 router = APIRouter()
@@ -97,11 +99,18 @@ async def _handle_installation_style_webhook(
         )
 
     if event_name == "installation":
-        if action != "created":
+        if action not in ("created", "deleted"):
             return Response(status_code=status.HTTP_204_NO_CONTENT)
     elif event_name == "installation_repositories":
         if action not in ("added", "removed"):
             return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+    if (
+        event_name == "installation"
+        and action == "deleted"
+        and settings.legacy_installation_deleted_webhook_204
+    ):
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
 
     if not delivery_id.strip():
         raise HTTPException(
@@ -245,16 +254,44 @@ async def github_webhook(request: Request) -> Response:
             detail="Temporary database error while recording webhook delivery",
         )
 
+    try:
+        may_enqueue = await run_in_threadpool(
+            pull_request_may_enqueue,
+            settings,
+            payload_obj,
+        )
+    except OperationalError as exc:
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Temporary database error while checking installation status",
+        ) from exc
+
+    if not may_enqueue:
+        return Response(status_code=status.HTTP_202_ACCEPTED)
+
     install_redis_broker(settings)
 
     from reviewgate.app.analysis.jobs import run_pr_analysis_stub
 
-    run_pr_analysis_stub.send(
-        {
-            "github_delivery_id": delivery_id,
-            "github_event": event_name,
-            "github_pull_request_action": action,
-        },
-    )
+    envelope: dict[str, object] = {
+        "github_delivery_id": delivery_id,
+        "github_event": event_name,
+        "github_pull_request_action": action,
+    }
+    inst_obj = payload_obj.get("installation")
+    repo_obj = payload_obj.get("repository")
+    if isinstance(inst_obj, dict) and isinstance(repo_obj, dict):
+        raw_i = inst_obj.get("id")
+        raw_r = repo_obj.get("id")
+        if (
+            not isinstance(raw_i, bool)
+            and isinstance(raw_i, int)
+            and not isinstance(raw_r, bool)
+            and isinstance(raw_r, int)
+        ):
+            envelope["github_installation_id"] = raw_i
+            envelope["github_repository_id"] = raw_r
+
+    run_pr_analysis_stub.send(envelope)
 
     return Response(status_code=status.HTTP_202_ACCEPTED)

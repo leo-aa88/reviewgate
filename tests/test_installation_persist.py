@@ -154,3 +154,66 @@ def test_persist_installation_created_commits_after_upserts(
 
     assert session.execute.call_count == 2
     session.commit.assert_called_once()
+
+
+def test_persist_installation_deleted_noop_when_unknown(
+    app_settings: AppSettings,
+) -> None:
+    """``installation.deleted`` for an unknown GitHub id commits without updates."""
+
+    fake_engine = object()
+    session = MagicMock()
+    session.execute.return_value.scalar_one_or_none.return_value = None
+    sm = _session_context(session)
+
+    with patch(
+        "reviewgate.app.webhooks.installation_persist.create_engine_from_settings",
+        return_value=fake_engine,
+    ):
+        with patch(
+            "reviewgate.app.webhooks.installation_persist.create_session_factory",
+            return_value=sm,
+        ):
+            persist_installation_webhook_payload(
+                app_settings,
+                event_name="installation",
+                action="deleted",
+                payload={"action": "deleted", "installation": {"id": 99}},
+            )
+
+    assert session.execute.call_count == 1
+    session.commit.assert_called_once()
+
+
+def test_persist_installation_deleted_sets_deleted_at_and_deactivates_repos(
+    app_settings: AppSettings,
+) -> None:
+    """``installation.deleted`` updates the installation and its repositories."""
+
+    fake_engine = object()
+    session = MagicMock()
+    inst_uuid = uuid.uuid4()
+    first = MagicMock()
+    first.scalar_one_or_none.return_value = inst_uuid
+    second = MagicMock()
+    third = MagicMock()
+    session.execute.side_effect = [first, second, third]
+    sm = _session_context(session)
+
+    with patch(
+        "reviewgate.app.webhooks.installation_persist.create_engine_from_settings",
+        return_value=fake_engine,
+    ):
+        with patch(
+            "reviewgate.app.webhooks.installation_persist.create_session_factory",
+            return_value=sm,
+        ):
+            persist_installation_webhook_payload(
+                app_settings,
+                event_name="installation",
+                action="deleted",
+                payload={"action": "deleted", "installation": {"id": 5}},
+            )
+
+    assert session.execute.call_count == 3
+    session.commit.assert_called_once()

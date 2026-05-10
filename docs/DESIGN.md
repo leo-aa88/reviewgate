@@ -2136,6 +2136,10 @@ Delete all analysis data for the installation within 30 days.
 Support immediate manual deletion by email request.
 ```
 
+The 30-day window is enforced by scheduled purge jobs over hosted tables (see
+``purge_old_webhook_deliveries`` / issue #34 for the same operational pattern;
+installation-scoped analysis purge ships with the full analysis pipeline).
+
 Privacy copy should state:
 
 ```text

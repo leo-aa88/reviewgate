@@ -274,7 +274,7 @@ keeps the upsert stable.
 
 The hosted GitHub App runs long PR analysis jobs out-of-process using
 **Dramatiq** with a **Redis** broker (``docs/DESIGN.md`` §13.7). Issue #30 wires
-the worker entrypoint; issue #32 adds the FastAPI API process.
+the worker entrypoint; issue #32 adds the FastAPI API process (``reviewgate-api``).
 
 From a repository clone:
 
@@ -298,6 +298,15 @@ The worker loads ``reviewgate.app.analysis.worker_app``, which installs the
 broker from ``AppSettings`` and imports stub actors from
 ``reviewgate.app.analysis.jobs`` until issue #50 replaces them with the real
 pipeline.
+
+In a **third terminal** (same venv; no extra env vars required for the default
+``GET /health`` probe):
+
+```bash
+reviewgate-api
+# then:
+curl -s http://127.0.0.1:8000/health
+```
 
 ---
 

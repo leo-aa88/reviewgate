@@ -65,6 +65,8 @@ Design = "https://github.com/leo-aa88/reviewgate/blob/main/docs/DESIGN.md"
 reviewgate-core = "reviewgate.core.cli:main"
 # Hosted worker (Dramatiq + Redis) per DESIGN.md §13.7 / issue #30.
 reviewgate-worker = "reviewgate.app.analysis.worker_cli:main"
+# Hosted HTTP API (FastAPI + uvicorn) per DESIGN.md §17 / issue #32.
+reviewgate-api = "reviewgate.app.api_cli:main"
 
 [project.optional-dependencies]
 # `types-PyYAML` is a stub-only package: PyYAML 6.x ships no inline type
@@ -86,6 +88,8 @@ app = [
     "dramatiq[redis]>=1.17.0",
     "PyJWT[crypto]>=2.8.0",
     "httpx>=0.27.0",
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.30.0",
 ]
 
 [tool.pytest.ini_options]

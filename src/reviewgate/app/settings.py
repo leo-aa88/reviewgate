@@ -37,6 +37,20 @@ class AppSettings(BaseSettings):
             "provides a URL."
         ),
     )
+    database_url: str | None = Field(
+        default=None,
+        description=(
+            "PostgreSQL URL for SQLAlchemy (``docs/DESIGN.md`` §16). Uses the "
+            "same ``REVIEWGATE_DATABASE_URL`` name as Alembic migrations so "
+            "operators configure one DSN for schema upgrades and runtime."
+        ),
+    )
+    http_port: int = Field(
+        default=8000,
+        ge=1,
+        le=65535,
+        description="TCP port for the hosted HTTP server (``GET /health``, issue #32).",
+    )
     github_app_id: int | None = Field(
         default=None,
         description=(

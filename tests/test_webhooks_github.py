@@ -49,6 +49,36 @@ def test_github_webhook_rejects_bad_signature(
     send.assert_not_called()
 
 
+def test_github_webhook_rejects_signature_missing_sha256_prefix(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``X-Hub-Signature-256`` without the ``sha256=`` prefix yields 401."""
+
+    monkeypatch.setenv("REVIEWGATE_GITHUB_WEBHOOK_SECRET", "s")
+    monkeypatch.setenv("REVIEWGATE_REDIS_URL", "redis://127.0.0.1:6379/0")
+    body = b"{}"
+    bad_header = hmac.new(b"s", body, hashlib.sha256).hexdigest()
+    with patch(
+        "reviewgate.app.analysis.broker_install.RedisBroker",
+        lambda **_: StubBroker(),
+    ):
+        with patch(
+            "reviewgate.app.analysis.jobs.run_pr_analysis_stub.send",
+        ) as send:
+            with TestClient(create_app()) as client:
+                response = client.post(
+                    "/webhooks/github",
+                    content=body,
+                    headers={
+                        "x-hub-signature-256": bad_header,
+                        "x-github-delivery": "d1",
+                        "x-github-event": "ping",
+                    },
+                )
+    assert response.status_code == 401
+    send.assert_not_called()
+
+
 def test_github_webhook_rejects_when_secret_unconfigured(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

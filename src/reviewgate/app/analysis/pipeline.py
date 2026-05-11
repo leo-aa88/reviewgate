@@ -222,7 +222,7 @@ def run_pr_analysis_for_natural_key(
     ctx: HostRepoContext,
     *,
     http_client: httpx.Client,
-) -> ReviewabilityReport:
+) -> tuple[ReviewabilityReport, ReviewGateConfig]:
     """Fetch PR data from GitHub, build :class:`~reviewgate.core.schemas.EngineInput`, run core.
 
     Args:
@@ -232,7 +232,9 @@ def run_pr_analysis_for_natural_key(
         http_client: Shared HTTP client for GitHub calls.
 
     Returns:
-        Deterministic :class:`~reviewgate.core.schemas.ReviewabilityReport`.
+        Tuple of the deterministic :class:`~reviewgate.core.schemas.ReviewabilityReport`
+        and the effective :class:`~reviewgate.core.config.ReviewGateConfig` loaded from
+        the repository (or defaults for §22.3 fail-fast before YAML is read).
 
     Raises:
         GitHubRestError: On GitHub HTTP failures (respect ``retriable``).
@@ -263,7 +265,10 @@ def run_pr_analysis_for_natural_key(
     pr_record = _pull_doc_to_pr_record(pr_doc)
     tier_cls = classify_changed_file_count(pr_record.changed_files)
     if tier_cls.tier == "fail_fast":
-        return _fail_fast_report(pr_record, tier_cls.fail_fast_message or "")
+        return (
+            _fail_fast_report(pr_record, tier_cls.fail_fast_message or ""),
+            ReviewGateConfig(),
+        )
 
     files_raw = fetch_pull_request_files(
         access.token,
@@ -310,4 +315,4 @@ def run_pr_analysis_for_natural_key(
         files=changed_files,
         config=load_result.config.model_dump(mode="json"),
     )
-    return analyze(engine_input)
+    return analyze(engine_input), load_result.config

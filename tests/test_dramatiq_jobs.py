@@ -41,6 +41,14 @@ def _minimal_pass_reviewability_report() -> object:
     )
 
 
+def _pipeline_success_tuple() -> tuple[object, object]:
+    """Pair returned by :func:`run_pr_analysis_for_natural_key` in worker tests."""
+
+    from reviewgate.core.config import ReviewGateConfig
+
+    return (_minimal_pass_reviewability_report(), ReviewGateConfig())
+
+
 def test_run_pr_analysis_stub_invokes_with_stub_broker() -> None:
     """Actors register against a :class:`~dramatiq.brokers.stub.StubBroker`."""
 
@@ -131,7 +139,12 @@ def test_run_pr_analysis_stub_marks_analysis_completed_with_natural_key(
     monkeypatch.setattr(
         jobs_mod,
         "run_pr_analysis_for_natural_key",
-        lambda *_a, **_k: _minimal_pass_reviewability_report(),
+        lambda *_a, **_k: _pipeline_success_tuple(),
+    )
+    monkeypatch.setattr(
+        jobs_mod,
+        "publish_hosted_pr_github_feedback",
+        lambda *_a, **_k: None,
     )
 
     from reviewgate.app.analysis.jobs import run_pr_analysis_stub
@@ -434,7 +447,12 @@ def test_run_pr_analysis_stub_skips_rate_limit_check_when_redis_disabled(
     monkeypatch.setattr(
         jobs_mod,
         "run_pr_analysis_for_natural_key",
-        lambda *_a, **_k: _minimal_pass_reviewability_report(),
+        lambda *_a, **_k: _pipeline_success_tuple(),
+    )
+    monkeypatch.setattr(
+        jobs_mod,
+        "publish_hosted_pr_github_feedback",
+        lambda *_a, **_k: None,
     )
 
     from reviewgate.app.analysis.jobs import run_pr_analysis_stub

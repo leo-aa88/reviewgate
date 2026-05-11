@@ -107,8 +107,11 @@ def test_analyze_huge_human_loc_pr_emits_high_severity_warning() -> None:
     """
 
     engine_input = EngineInput(
-        pr=_pr(additions=5000, deletions=0, changed_files=1),
-        files=[_file("src/feature.py", changes=5000)],
+        pr=_pr(additions=5001, deletions=0, changed_files=2),
+        files=[
+            _file("src/feature.py", changes=5000),
+            _file("tests/test_feature.py", changes=1),
+        ],
     )
     report = analyze(engine_input)
 
@@ -129,10 +132,11 @@ def test_analyze_lockfile_dominated_pr_does_not_fail_on_size() -> None:
     """
 
     engine_input = EngineInput(
-        pr=_pr(additions=2100, deletions=2100, changed_files=2),
+        pr=_pr(additions=2101, deletions=2100, changed_files=3),
         files=[
             _file("package-lock.json", changes=3850),
             _file("src/utils.py", changes=350),
+            _file("tests/test_utils.py", changes=1),
         ],
     )
     report = analyze(engine_input)
@@ -140,9 +144,9 @@ def test_analyze_lockfile_dominated_pr_does_not_fail_on_size() -> None:
     pass_verdict: Reviewability = "PASS"
     assert report.reviewability == pass_verdict
     assert report.warnings == []
-    assert report.stats["raw_loc_changed"] == 4200
+    assert report.stats["raw_loc_changed"] == 4201
     assert report.stats["excluded_loc_changed"] == 3850
-    assert report.stats["human_loc_changed"] == 350
+    assert report.stats["human_loc_changed"] == 351
 
 
 def test_analyze_many_files_pr_emits_medium_severity_warning() -> None:
@@ -154,8 +158,9 @@ def test_analyze_many_files_pr_emits_medium_severity_warning() -> None:
     """
 
     files = [_file(f"src/mod{i}.py", changes=5) for i in range(30)]
+    files.append(_file("tests/test_mods.py", changes=5))
     engine_input = EngineInput(
-        pr=_pr(additions=150, deletions=0, changed_files=30),
+        pr=_pr(additions=155, deletions=0, changed_files=31),
         files=files,
     )
     report = analyze(engine_input)
@@ -165,7 +170,7 @@ def test_analyze_many_files_pr_emits_medium_severity_warning() -> None:
     [warning] = report.warnings
     assert warning.code == WARN_CODE_TOO_MANY_FILES
     assert warning.severity == "medium"
-    assert warning.evidence["actual"] == 30
+    assert warning.evidence["actual"] == 31
     assert warning.evidence["threshold"] == 25
 
 
@@ -195,8 +200,9 @@ def test_analyze_uses_user_provided_thresholds() -> None:
     """
 
     files = [_file(f"src/mod{i}.py", changes=2) for i in range(5)]
+    files.append(_file("tests/test_mods.py", changes=2))
     engine_input = EngineInput(
-        pr=_pr(additions=10, deletions=0, changed_files=5),
+        pr=_pr(additions=12, deletions=0, changed_files=6),
         files=files,
         config={
             "thresholds": {
@@ -317,7 +323,10 @@ def test_analyze_silences_risky_paths_warning_when_body_mentions_category() -> N
                 "the session timeout is configurable per tenant."
             ),
         ),
-        files=[_file("services/auth/login.py", changes=12)],
+        files=[
+            _file("services/auth/login.py", changes=12),
+            _file("tests/test_login.py", changes=1),
+        ],
     )
     report = analyze(engine_input)
     assert report.warnings == []
@@ -386,6 +395,7 @@ def test_analyze_emits_suggested_labels_for_multi_warning_pr() -> None:
         "missing-context",
         "risky-change",
         "needs-split",
+        "config-change",
     ]
 
 
@@ -522,8 +532,11 @@ def test_analyze_combines_size_weak_body_and_linked_issue_warnings() -> None:
     from reviewgate.core.pr_body import WARN_CODE_WEAK_BODY
 
     engine_input = EngineInput(
-        pr=_pr(additions=5000, deletions=0, changed_files=1, body="   "),
-        files=[_file("src/feature.py", changes=5000)],
+        pr=_pr(additions=5001, deletions=0, changed_files=2, body="   "),
+        files=[
+            _file("src/feature.py", changes=5000),
+            _file("tests/test_feature.py", changes=1),
+        ],
     )
     report = analyze(engine_input)
 

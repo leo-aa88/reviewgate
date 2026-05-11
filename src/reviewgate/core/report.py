@@ -40,12 +40,18 @@ from collections.abc import Callable, Iterable
 from typing import Final
 
 from .config import Labels
+from .count_warnings import (
+    WARN_CODE_MANY_CONFIG_FILES,
+    WARN_CODE_MANY_DEPENDENCY_FILES,
+    WARN_CODE_MANY_RISKY_FILES,
+)
 from .linked_issue import WARN_CODE_MISSING_LINKED_ISSUE
 from .mixed_concern import WARN_CODE_MIXED_CONCERN
 from .pr_body import WARN_CODE_WEAK_BODY
 from .risky_paths import WARN_CODE_RISKY_NO_RATIONALE
 from .schemas import EngineWarning, Reviewability
 from .size import WARN_CODE_TOO_LARGE_HUMAN_LOC, WARN_CODE_TOO_MANY_FILES
+from .tests_coverage import WARN_CODE_MISSING_TESTS_FOR_SOURCE
 
 # Concern-label rules in spec enumeration order. Each entry pairs the
 # set of warning codes that contribute to a concern with a typed getter
@@ -65,12 +71,24 @@ _CONCERN_RULES: Final[tuple[tuple[frozenset[str], _LabelGetter], ...]] = (
         lambda labels: labels.missing_context,
     ),
     (
-        frozenset({WARN_CODE_RISKY_NO_RATIONALE}),
+        frozenset({WARN_CODE_RISKY_NO_RATIONALE, WARN_CODE_MANY_RISKY_FILES}),
         lambda labels: labels.risky_change,
     ),
     (
         frozenset({WARN_CODE_MIXED_CONCERN}),
         lambda labels: labels.needs_split,
+    ),
+    (
+        frozenset({WARN_CODE_MISSING_TESTS_FOR_SOURCE}),
+        lambda labels: labels.needs_tests,
+    ),
+    (
+        frozenset({WARN_CODE_MANY_DEPENDENCY_FILES}),
+        lambda labels: labels.dependency_change,
+    ),
+    (
+        frozenset({WARN_CODE_MANY_CONFIG_FILES}),
+        lambda labels: labels.config_change,
     ),
 )
 

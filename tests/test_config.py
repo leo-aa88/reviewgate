@@ -120,7 +120,7 @@ def test_default_warn_thresholds_match_design_doc_section_10_3() -> None:
     warn = ReviewGateConfig().thresholds.warn
     assert warn.files_changed == 25
     assert warn.human_loc_changed == 800
-    assert warn.risky_files_changed == 1
+    assert warn.risky_files_changed == 2
     assert warn.dependency_files_changed == 1
     assert warn.config_files_changed == 1
 

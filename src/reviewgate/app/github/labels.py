@@ -62,7 +62,7 @@ def managed_label_names(labels: Labels) -> frozenset[str]:
         labels: Label name configuration from the effective ReviewGate config.
 
     Returns:
-        A (typically seven-element) frozenset of distinct non-empty names.
+        A frozenset of distinct non-empty names (every configured §13.9 label).
     """
 
     raw = (
@@ -73,6 +73,9 @@ def managed_label_names(labels: Labels) -> frozenset[str]:
         labels.missing_context,
         labels.risky_change,
         labels.needs_split,
+        labels.needs_tests,
+        labels.dependency_change,
+        labels.config_change,
     )
     return frozenset({n.strip() for n in raw if n.strip()})
 

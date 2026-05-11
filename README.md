@@ -240,6 +240,9 @@ module ties back to a §-numbered section of `docs/DESIGN.md`:
 | [`paths.py`](src/reviewgate/core/paths.py) | Pure gitignore-style glob matcher | §10.6–§10.9 |
 | [`categorizer.py`](src/reviewgate/core/categorizer.py) | Per-file categorization across 16 closed labels | §10.5 |
 | [`size.py`](src/reviewgate/core/size.py) | Raw + human-authored LOC and size warnings | §10.3, §10.4 |
+| [`ignored_paths.py`](src/reviewgate/core/ignored_paths.py) | Applies `ignored_paths` before categorisation | §12 |
+| [`count_warnings.py`](src/reviewgate/core/count_warnings.py) | Warn-tier risky / dependency / config file counts | §10.3 |
+| [`tests_coverage.py`](src/reviewgate/core/tests_coverage.py) | Source changes without test files (bounded heuristic) | §9, §13.9 |
 | [`pr_body.py`](src/reviewgate/core/pr_body.py) | Weak-PR-body detection | §10.10 |
 | [`linked_issue.py`](src/reviewgate/core/linked_issue.py) | Linked-issue / ticket reference detection | §10.10 |
 | [`risky_paths.py`](src/reviewgate/core/risky_paths.py) | Risky-paths-without-rationale heuristic | §10.6, §10.10 |

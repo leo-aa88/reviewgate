@@ -15,7 +15,7 @@ from reviewgate.app.github.checks import (
     create_completed_reviewability_check_run,
     reviewability_check_conclusion,
 )
-from reviewgate.core.config import StatusCheck
+from reviewgate.core.config import StatusCheck, StatusFailOn
 from reviewgate.core.schemas import Reviewability
 
 _TOKEN: Final[SecretStr] = SecretStr("ghs_installation_token_example")
@@ -23,24 +23,29 @@ _SHA40: Final[str] = "a" * 40
 
 
 @pytest.mark.parametrize(
-    ("verdict", "warn_blocks", "expected"),
+    ("verdict", "fail_on", "warn_blocks", "expected"),
     [
-        ("PASS", False, "success"),
-        ("PASS", True, "success"),
-        ("FAIL", False, "failure"),
-        ("FAIL", True, "failure"),
-        ("WARN", False, "neutral"),
-        ("WARN", True, "failure"),
+        ("PASS", "FAIL", False, "success"),
+        ("PASS", "FAIL", True, "success"),
+        ("PASS", "PASS", False, "failure"),
+        ("FAIL", "FAIL", False, "failure"),
+        ("FAIL", "FAIL", True, "failure"),
+        ("WARN", "FAIL", False, "neutral"),
+        ("WARN", "FAIL", True, "failure"),
+        ("WARN", "WARN", False, "failure"),
+        ("WARN", "WARN", True, "failure"),
     ],
 )
 def test_reviewability_check_conclusion_table(
     verdict: Reviewability,
+    fail_on: StatusFailOn,
     warn_blocks: bool,
     expected: str,
 ) -> None:
     assert (
         reviewability_check_conclusion(
             verdict,
+            fail_on=fail_on,
             warn_blocks_merge=warn_blocks,
         )
         == expected
@@ -60,6 +65,7 @@ def test_create_check_run_posts_completed_payload() -> None:
     sc = StatusCheck(
         enabled=True,
         name="reviewgate/reviewability",
+        fail_on="FAIL",
         warn_blocks_merge=False,
     )
     transport = httpx.MockTransport(handler)

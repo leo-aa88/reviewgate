@@ -12,10 +12,15 @@ Raises:
     RuntimeError: If ``REVIEWGATE_REDIS_URL`` is unset (see
         :func:`reviewgate.app.analysis.broker_install.install_redis_broker`).
 
-Daily ``webhook_deliveries`` retention is handled by
-:func:`reviewgate.app.analysis.jobs.purge_old_webhook_deliveries` (issue #34);
-schedule it with an external cron or orchestrator that invokes the actor
-function (``fn``) or ``send`` from a thread-safe context.
+Daily retention jobs:
+
+* :func:`reviewgate.app.analysis.jobs.purge_old_webhook_deliveries` (issue #34)
+  for ``webhook_deliveries``.
+* :func:`reviewgate.app.analysis.jobs.purge_analyses_for_old_uninstalls` (GitHub #124)
+  for installation-scoped ``analyses`` / ``analysis_reports`` after uninstall.
+
+Schedule both with an external cron or orchestrator that invokes each actor's
+``fn`` or ``send`` from a thread-safe context.
 """
 
 from __future__ import annotations

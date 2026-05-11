@@ -10,8 +10,25 @@ should be considered stable but subject to additive change.
 
 ## [Unreleased]
 
+### Added
+
+- **DESIGN.md §12 / issue #124 alignment:** `ignored_paths` filtering in the
+  deterministic engine; warn-tier counts for risky / dependency / config file
+  volumes; `missing_tests_for_source` heuristic (skipped for very large diffs
+  and non-human-authored “source” rows); `Labels` entries for `needs-tests`,
+  `dependency-change`, and `config-change`; `status_check.fail_on` mapping in
+  GitHub check conclusions; `purge_analyses_for_old_uninstalls` Dramatiq actor
+  plus `purge_analyses_for_uninstalled_installations` storage helper for the
+  §23.1 retention window.
+
 ### Changed
 
+- **Default `thresholds.warn.risky_files_changed`** is now **2** (documented in
+  `docs/DESIGN.md` §10.3) so single-file risky edits rely on the rationale
+  heuristic without a redundant count warning; set `1` in `.reviewgate.yml` to
+  restore the stricter table.
+- **Hosted pipeline:** `.reviewgate.yml` is fetched before the §22.3 fail-fast
+  short-circuit so `policy.fail_on_huge_pr` can soften the >1000-files tier.
 - Public open-source release under Apache License 2.0.
 - Comprehensive README, contributor docs, issue/PR templates, and a
   private-beta `docs/QUICKSTART.md` walkthrough.

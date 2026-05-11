@@ -144,7 +144,13 @@ class WarnThresholds(StrictModel):
         default=800, ge=0, description="Warn on human-authored LOC above this (§10.3, §10.4)."
     )
     risky_files_changed: int = Field(
-        default=1, ge=0, description="Warn when risky-path file count is at or above this (§10.3)."
+        default=2,
+        ge=0,
+        description=(
+            "Warn when risky-path file count is at or above this (§10.3). "
+            "Default 2 avoids a redundant warning on single-file risky edits that "
+            "already flow through the risky-path rationale heuristic."
+        ),
     )
     dependency_files_changed: int = Field(
         default=1, ge=0, description="Warn when dependency-file edits reach this count (§10.3)."
@@ -208,8 +214,9 @@ class Labels(StrictModel):
     """`labels` block (§12, §13.9).
 
     The `pass` key collides with the Python keyword, so it is exposed as
-    `pass_` on the model and aliased to `pass` for YAML/JSON I/O. Strict
-    defaults (`extra="forbid"`, `strict=True`, `str_strip_whitespace=True`)
+    `pass_` on the model and aliased to `pass` for YAML/JSON I/O. Keys such as
+    ``needs-tests`` use the same ``populate_by_name`` pattern as ``pass``.
+    Strict defaults (`extra="forbid"`, `strict=True`, `str_strip_whitespace=True`)
     are inherited verbatim from :class:`StrictModel`; only
     `populate_by_name` is layered on so that Python construction via
     `Labels(pass_="...")` keeps working alongside the `pass` alias.
@@ -238,6 +245,21 @@ class Labels(StrictModel):
     )
     needs_split: str = Field(
         default="needs-split", description="Applied when split hints are emitted (§13.9)."
+    )
+    needs_tests: str = Field(
+        default="needs-tests",
+        alias="needs-tests",
+        description="Applied when source changes lack test files (§13.9).",
+    )
+    dependency_change: str = Field(
+        default="dependency-change",
+        alias="dependency-change",
+        description="Applied for dependency-manifest churn (§13.9).",
+    )
+    config_change: str = Field(
+        default="config-change",
+        alias="config-change",
+        description="Applied for broad config edits (§13.9).",
     )
 
 

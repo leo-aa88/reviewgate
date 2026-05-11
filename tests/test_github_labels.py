@@ -33,6 +33,9 @@ def test_managed_label_names_includes_config_fields() -> None:
             "missing_context": "p-miss",
             "risky_change": "p-risk",
             "needs_split": "p-split",
+            "needs-tests": "p-tests",
+            "dependency-change": "p-deps",
+            "config-change": "p-cfg",
         },
     )
     names = managed_label_names(labels)
@@ -44,6 +47,9 @@ def test_managed_label_names_includes_config_fields() -> None:
         "p-miss",
         "p-risk",
         "p-split",
+        "p-tests",
+        "p-deps",
+        "p-cfg",
     }
 
 

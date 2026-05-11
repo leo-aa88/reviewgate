@@ -1,7 +1,7 @@
 """GitHub App integration for the hosted ReviewGate service (``docs/DESIGN.md`` §13).
 
 This package owns server-to-server authentication, REST clients, and PR
-comment upsert and label sync helpers (§13.8–§13.9). The deterministic engine in
+comment upsert, label sync, and Checks API helpers (§13.8–§13.10). The deterministic engine in
 :mod:`reviewgate.core` must never import from here.
 """
 
@@ -26,6 +26,10 @@ from reviewgate.app.github.comments import (
     resolve_reviewgate_bot_login,
     upsert_reviewgate_report_issue_comment,
 )
+from reviewgate.app.github.checks import (
+    create_completed_reviewability_check_run,
+    reviewability_check_conclusion,
+)
 from reviewgate.app.github.labels import (
     ensure_reviewgate_labels_exist,
     list_issue_label_names,
@@ -39,6 +43,7 @@ __all__ = [
     "InstallationAccessToken",
     "REVIEWGATE_REPORT_MARKER",
     "UpsertCommentResult",
+    "create_completed_reviewability_check_run",
     "ensure_reviewgate_labels_exist",
     "fetch_installation_access_token",
     "fetch_pull_request",
@@ -48,6 +53,7 @@ __all__ = [
     "list_issue_label_names",
     "managed_label_names",
     "mint_github_app_jwt",
+    "reviewability_check_conclusion",
     "resolve_reviewgate_bot_login",
     "sync_reviewgate_labels_on_issue",
     "upsert_reviewgate_report_issue_comment",

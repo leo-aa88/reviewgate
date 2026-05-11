@@ -19,6 +19,7 @@ from reviewgate.app.storage.repositories import (
     ANALYSIS_STATUS_RUNNING,
     AnalysisNaturalKey,
     begin_analysis_for_job_start,
+    completed_analysis_exists_for_key,
     mark_analysis_completed,
     mark_analysis_failed,
     parse_analysis_job_natural_key,
@@ -184,6 +185,25 @@ def test_begin_analysis_resumes_failed(repo_session: Session) -> None:
     assert row is not None
     assert row.status == ANALYSIS_STATUS_RUNNING
     assert row.error_code is None
+
+
+def test_completed_analysis_exists_for_key(repo_session: Session) -> None:
+    """``completed_analysis_exists_for_key`` matches only terminal completed rows."""
+
+    _inst, repo_id = _seed_installation_and_repository(repo_session)
+    key = AnalysisNaturalKey(
+        repository_id=repo_id,
+        pull_number=11,
+        head_sha="ee",
+        config_hash="c",
+        pr_metadata_hash="m",
+    )
+    assert not completed_analysis_exists_for_key(repo_session, key)
+    aid, _ = begin_analysis_for_job_start(repo_session, key)
+    assert not completed_analysis_exists_for_key(repo_session, key)
+    mark_analysis_completed(repo_session, aid, reviewability="PASS")
+    repo_session.commit()
+    assert completed_analysis_exists_for_key(repo_session, key)
 
 
 def test_begin_analysis_second_running_worker(repo_session: Session) -> None:

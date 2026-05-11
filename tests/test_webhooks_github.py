@@ -769,6 +769,40 @@ def test_github_webhook_synchronize_debounce_redis_error_returns_503(
     send.assert_not_called()
 
 
+def test_github_webhook_skip_enqueue_when_completed_analysis(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Issue #47: §13.7 enqueue dedupe may return **202** without ``Actor.send``."""
+
+    monkeypatch.setenv("REVIEWGATE_GITHUB_WEBHOOK_SECRET", "s")
+    monkeypatch.setenv("REVIEWGATE_REDIS_URL", "redis://127.0.0.1:6379/0")
+    body = _PR_OPENED_BODY
+    with patch.object(
+        github_webhook_module,
+        "evaluate_pull_request_enqueue_dedupe",
+        lambda *_a, **_k: (True, {}),
+    ):
+        with patch(
+            "reviewgate.app.analysis.broker_install.RedisBroker",
+            lambda **_: StubBroker(),
+        ):
+            with patch(
+                "reviewgate.app.analysis.jobs.run_pr_analysis_stub.send",
+            ) as send:
+                with TestClient(create_app()) as client:
+                    response = client.post(
+                        "/webhooks/github",
+                        content=body,
+                        headers={
+                            "x-hub-signature-256": _signature(body, "s"),
+                            "x-github-delivery": "skip-completed-1",
+                            "x-github-event": "pull_request",
+                        },
+                    )
+    assert response.status_code == 202
+    send.assert_not_called()
+
+
 def test_github_webhook_reinstalls_broker_when_redis_url_changes(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

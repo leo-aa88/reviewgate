@@ -6,6 +6,10 @@ capture, and webhook delivery deduplication. Column names, types, nullability,
 uniques, and indexes follow the design document; Alembic revisions under
 ``alembic/versions`` must stay aligned with this module.
 
+JSON document columns on ``analysis_reports`` use PostgreSQL ``JSONB`` in
+production while selecting generic ``JSON`` on other dialects (for example
+in-memory SQLite in unit tests) via :meth:`sqlalchemy.types.TypeEngine.with_variant`.
+
 Example:
     Inspecting registered table names (requires optional ``app`` extras)::
 
@@ -28,6 +32,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    JSON,
     Numeric,
     Text,
     UniqueConstraint,
@@ -50,6 +55,9 @@ TABLE_WEBHOOK_DELIVERIES: Final[str] = "webhook_deliveries"
 UQ_ANALYSES_NATURAL_KEY: Final[str] = (
     "uq_analyses_repository_pull_head_config_pr_metadata_hash"
 )
+
+#: ``JSONB`` on PostgreSQL (matches Alembic); ``JSON`` elsewhere for SQLite tests.
+_ANALYSIS_REPORT_JSON: Final[object] = JSON().with_variant(JSONB(), "postgresql")
 
 
 class Base(DeclarativeBase):
@@ -243,9 +251,12 @@ class AnalysisReport(Base):
         ForeignKey(f"{TABLE_ANALYSES}.id"),
         nullable=False,
     )
-    report_json: Mapped[dict[str, object]] = mapped_column(JSONB, nullable=False)
+    report_json: Mapped[dict[str, object]] = mapped_column(
+        _ANALYSIS_REPORT_JSON,
+        nullable=False,
+    )
     deterministic_json: Mapped[dict[str, object]] = mapped_column(
-        JSONB,
+        _ANALYSIS_REPORT_JSON,
         nullable=False,
     )
     llm_used: Mapped[bool] = mapped_column(

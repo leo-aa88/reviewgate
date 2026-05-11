@@ -1,7 +1,7 @@
-"""Dramatiq actors for hosted PR analysis (stub until issue #50).
+"""Dramatiq actors for hosted PR analysis (``docs/DESIGN.md`` §13.7; issues #46–#50).
 
 ``docs/DESIGN.md`` §13.7 recommends Dramatiq + Redis so webhooks never block on
-analysis or LLM calls. This module defines **actors** (analysis stub plus
+analysis or LLM calls. This module defines **actors** (PR analysis plus
 housekeeping); the Redis broker is
 installed via :func:`reviewgate.app.analysis.broker_install.install_redis_broker`
 from the GitHub webhook handler (issue #33) or in
@@ -10,7 +10,7 @@ by the Dramatiq CLI.
 
 Retry and backoff defaults target GitHub and LLM rate limits: a modest number
 of retries with exponentially capped backoff (milliseconds, Dramatiq
-convention). Tune per-actor when the real pipeline lands in issue #50.
+convention). Retriable GitHub HTTP failures re-raise so Dramatiq can retry.
 
 Example:
     Unit tests can register actors against a stub broker::
@@ -30,19 +30,30 @@ from contextlib import nullcontext
 from typing import Final
 
 import dramatiq
+import httpx
 
+from reviewgate.app.analysis.pipeline import (
+    AnalysisPipelineUserError,
+    resolve_host_repo_context,
+    run_pr_analysis_for_natural_key,
+)
 from reviewgate.app.analysis.result_cache import (
     get_cached_final_report,
     set_cached_final_report,
 )
 from reviewgate.app.analysis.worker_job_lock import worker_job_lock_hold
+from reviewgate.app.github.auth import GitHubAppAuthError
+from reviewgate.app.github.client import GitHubRestError
 from reviewgate.app.rate_limit.limiter import check_analysis_rate_limits
 from reviewgate.app.settings import AppSettings
 from reviewgate.app.storage.db import create_engine_from_settings, create_session_factory
 from reviewgate.app.storage.repositories import (
     begin_analysis_for_job_start,
+    insert_analysis_report,
     mark_analysis_completed,
+    mark_analysis_failed,
     parse_analysis_job_natural_key,
+    update_analysis_pr_size_fields,
 )
 from reviewgate.app.storage.webhook_purge import purge_webhook_deliveries_older_than
 from reviewgate.app.webhooks.enqueue_policy import installation_repository_may_enqueue_jobs
@@ -54,6 +65,13 @@ _TIME_LIMIT_MS: Final[int] = 900_000
 _PURGE_TIME_LIMIT_MS: Final[int] = 300_000
 
 
+def _non_negative_stat(stats: dict[str, object], key: str) -> int:
+    raw = stats.get(key)
+    if isinstance(raw, bool) or not isinstance(raw, int) or raw < 0:
+        return 0
+    return raw
+
+
 @dramatiq.actor(
     max_retries=_MAX_RETRIES,
     min_backoff=_MIN_BACKOFF_MS,
@@ -61,24 +79,19 @@ _PURGE_TIME_LIMIT_MS: Final[int] = 300_000
     time_limit=_TIME_LIMIT_MS,
 )
 def run_pr_analysis_stub(payload: dict[str, object]) -> None:
-    """Placeholder actor; issue #50 replaces this with the real pipeline.
+    """Run hosted PR analysis: GitHub fetch, deterministic core, Postgres persistence.
 
     Args:
-        payload: Opaque job envelope (repository id, PR number, head SHA, etc.).
-            Kept as ``dict[str, object]`` until the worker contract is frozen.
-            When ``github_installation_id`` and ``github_repository_id`` are set
-            (issue #36), the actor skips work for soft-deleted installations or
-            inactive repositories before the real pipeline exists. When all
-            optional ``reviewgate_repository_id`` (UUID string or instance),
-            ``reviewgate_pull_number``, ``reviewgate_head_sha``,
-            ``reviewgate_config_hash``, and ``reviewgate_pr_metadata_hash`` keys
-            are present, the stub persists ``analyses`` lifecycle rows per issue
-            #46 (``running`` then ``completed`` with reviewability ``PASS``), except
-            when another worker already holds ``running`` (``already_running``) or
-            the row is ``already_completed``. When Redis is configured, §13.6
-            final-result cache (issue #48) is consulted after the worker lock and
-            populated after a fresh ``completed`` transition. §22.2 Redis counters
-            (issue #49) run after the installation guard when Redis is configured.
+        payload: Job envelope from the webhook handler (installation ids,
+            optional ``reviewgate_*`` natural-key fields). When ``github_*`` ids
+            are set (issue #36), the actor skips work for soft-deleted
+            installations or inactive repositories. When all ``reviewgate_*``
+            keys are present, issue #50 loads PR data from GitHub, runs
+            :func:`reviewgate.core.engine.analyze`, writes ``analysis_reports``,
+            and completes the ``analyses`` row unless another worker holds the row
+            (``already_running``) or it is ``already_completed``. Redis final-result
+            cache (issue #48) and §22.2 rate limits (issue #49) apply when
+            configured.
     """
 
     settings = AppSettings()
@@ -147,21 +160,101 @@ def run_pr_analysis_stub(payload: dict[str, object]) -> None:
                     session,
                     natural,
                 )
-                if begin_kind not in ("already_completed", "already_running"):
-                    mark_analysis_completed(
+                if begin_kind in ("already_completed", "already_running"):
+                    del payload
+                    return
+
+                ctx = resolve_host_repo_context(session, natural.repository_id)
+                if ctx is None:
+                    mark_analysis_failed(
                         session,
                         analysis_id,
-                        reviewability="PASS",
+                        error_code="missing_repository_context",
                     )
-                    if settings.redis_url is not None:
-                        set_cached_final_report(
-                            settings,
-                            natural,
-                            {
-                                "reviewability": "PASS",
-                                "result_cache_stub": True,
-                            },
+                elif (
+                    need_installation_guard
+                    and ctx.github_installation_id != raw_inst
+                ):
+                    mark_analysis_failed(
+                        session,
+                        analysis_id,
+                        error_code="installation_context_mismatch",
+                    )
+                else:
+                    try:
+                        with httpx.Client(timeout=30.0) as http_client:
+                            report = run_pr_analysis_for_natural_key(
+                                settings,
+                                natural,
+                                ctx,
+                                http_client=http_client,
+                            )
+                    except GitHubRestError as exc:
+                        if exc.retriable:
+                            raise
+                        mark_analysis_failed(
+                            session,
+                            analysis_id,
+                            error_code="github_rest",
                         )
+                    except GitHubAppAuthError:
+                        mark_analysis_failed(
+                            session,
+                            analysis_id,
+                            error_code="github_app_auth",
+                        )
+                    except AnalysisPipelineUserError as exc:
+                        mark_analysis_failed(
+                            session,
+                            analysis_id,
+                            error_code=exc.error_code,
+                        )
+                    except httpx.HTTPError:
+                        raise
+                    else:
+                        dumped = report.model_dump(mode="json")
+                        stats_obj = dumped.get("stats")
+                        stats_map = (
+                            stats_obj
+                            if isinstance(stats_obj, dict)
+                            else {}
+                        )
+                        update_analysis_pr_size_fields(
+                            session,
+                            analysis_id,
+                            files_changed=_non_negative_stat(
+                                stats_map,
+                                "files_changed",
+                            ),
+                            raw_loc_changed=_non_negative_stat(
+                                stats_map,
+                                "raw_loc_changed",
+                            ),
+                            human_loc_changed=_non_negative_stat(
+                                stats_map,
+                                "human_loc_changed",
+                            ),
+                        )
+                        mark_analysis_completed(
+                            session,
+                            analysis_id,
+                            reviewability=report.reviewability,
+                        )
+                        insert_analysis_report(
+                            session,
+                            analysis_id,
+                            report_json=dumped,
+                            deterministic_json=dumped,
+                        )
+                        if settings.redis_url is not None:
+                            set_cached_final_report(
+                                settings,
+                                natural,
+                                {
+                                    "reviewability": report.reviewability,
+                                    "stats": report.stats,
+                                },
+                            )
             session.commit()
 
     del payload

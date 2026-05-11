@@ -49,6 +49,7 @@ INDEX_WEBHOOK_DELIVERIES_CREATED_AT: Final[str] = "idx_webhook_deliveries_create
 TABLE_ANALYSES: Final[str] = "analyses"
 TABLE_ANALYSIS_REPORTS: Final[str] = "analysis_reports"
 TABLE_BETA_LEADS: Final[str] = "beta_leads"
+TABLE_BETA_FEEDBACK: Final[str] = "beta_feedback"
 TABLE_INSTALLATIONS: Final[str] = "installations"
 TABLE_REPOSITORIES: Final[str] = "repositories"
 TABLE_WEBHOOK_DELIVERIES: Final[str] = "webhook_deliveries"
@@ -307,6 +308,32 @@ class BetaLead(Base):
     github_org: Mapped[str | None] = mapped_column(Text, nullable=True)
     team_size: Mapped[str | None] = mapped_column(Text, nullable=True)
     source: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=text("now()"),
+    )
+
+
+class BetaFeedback(Base):
+    """Private beta free-form feedback row (issue #55 ``beta_feedback``).
+
+    Attributes:
+        id: Surrogate primary key.
+        message: Required user feedback text.
+        contact: Optional email or other reach-back string.
+        created_at: Row creation timestamp (UTC).
+    """
+
+    __tablename__ = TABLE_BETA_FEEDBACK
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        server_default=text("gen_random_uuid()"),
+    )
+    message: Mapped[str] = mapped_column(Text, nullable=False)
+    contact: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,

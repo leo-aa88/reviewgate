@@ -31,6 +31,7 @@ _EXPECTED_ABSENT: Final[frozenset[str]] = frozenset(
         models.TABLE_ANALYSES,
         models.TABLE_ANALYSIS_REPORTS,
         models.TABLE_BETA_LEADS,
+        models.TABLE_BETA_FEEDBACK,
         models.TABLE_WEBHOOK_DELIVERIES,
     },
 )

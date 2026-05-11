@@ -589,7 +589,7 @@ The deterministic engine is the foundation of trust. It must work without LLMs.
 warn:
   files_changed: 25
   human_loc_changed: 800
-  risky_files_changed: 1
+  risky_files_changed: 2
   dependency_files_changed: 1
   config_files_changed: 1
 
@@ -1041,6 +1041,9 @@ thresholds:
   warn:
     files_changed: 25
     human_loc_changed: 800
+    risky_files_changed: 2
+    dependency_files_changed: 1
+    config_files_changed: 1
   fail:
     files_changed: 75
     human_loc_changed: 2500
@@ -1071,6 +1074,9 @@ labels:
   missing_context: "missing-context"
   risky_change: "risky-change"
   needs_split: "needs-split"
+  needs-tests: "needs-tests"
+  dependency-change: "dependency-change"
+  config-change: "config-change"
 
 status_check:
   enabled: true
@@ -1078,6 +1084,18 @@ status_check:
   fail_on: "FAIL"
   warn_blocks_merge: false
 ```
+
+### 12.1 Shipped engine and hosted behaviour (GitHub #124)
+
+The open-source engine and hosted worker implement the following (see GitHub issue #124 for the alignment audit):
+
+* **`ignored_paths`** — Glob matches are removed before categorisation and stats; PR-level `additions` / `deletions` from GitHub are **not** rewritten unless at least one path was ignored (per-file sums are only used after filtering).
+* **`thresholds.warn` extras** — `risky_files_changed`, `dependency_files_changed`, and `config_files_changed` emit additional `medium` warnings when counts reach the configured thresholds. The shipped default for `risky_files_changed` is **2** so a lone risky file still relies on the rationale heuristic instead of duplicating signal.
+* **`policy.require_human_summary`** — When `false`, the weak-PR-body heuristic is skipped entirely (linked-issue policy is unchanged).
+* **`policy.fail_on_huge_pr`** — When `false`, the §22.3 **>1000 files** fail-fast path yields `WARN` with a `medium` severity marker instead of `FAIL` / `high`.
+* **`status_check.fail_on`** — Maps to GitHub check conclusions: verdicts at or above this tier publish `failure`; `WARN` below that tier stays `neutral` unless `warn_blocks_merge` forces `failure`.
+* **§13.9 labels** — `needs-tests`, `dependency-change`, and `config-change` are configurable label names; deterministic warnings map to them when present.
+* **Hosted purge** — `purge_analyses_for_old_uninstalls` (Dramatiq) deletes `analyses` / `analysis_reports` rows for installations whose `deleted_at` is older than 30 days, complementing `purge_old_webhook_deliveries`.
 
 Config precedence:
 
@@ -2136,9 +2154,10 @@ Delete all analysis data for the installation within 30 days.
 Support immediate manual deletion by email request.
 ```
 
-The 30-day window is enforced by scheduled purge jobs over hosted tables (see
-``purge_old_webhook_deliveries`` / issue #34 for the same operational pattern;
-installation-scoped analysis purge ships with the full analysis pipeline).
+The 30-day window is enforced by scheduled purge jobs over hosted tables: operators
+run ``purge_old_webhook_deliveries`` (issue #34) and
+``purge_analyses_for_old_uninstalls`` (GitHub #124) on a daily cadence alongside
+their Dramatiq worker / cron infrastructure.
 
 Privacy copy should state:
 

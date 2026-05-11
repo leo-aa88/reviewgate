@@ -365,6 +365,8 @@ def test_cli_runs_full_engine_end_to_end_no_placeholder_pass(
         "missing_linked_issue",
         "risky_paths_without_rationale",
         "mixed_concern_clusters",
+        "many_risky_files",
+        "missing_tests_for_source",
     }, f"unexpected warning codes from full engine: {sorted(codes)}"
 
     assert report.suggested_labels[0] == "reviewability-fail"
@@ -374,6 +376,7 @@ def test_cli_runs_full_engine_end_to_end_no_placeholder_pass(
         "missing-context",
         "risky-change",
         "needs-split",
+        "needs-tests",
     }
 
     file_paths = {row.filename for row in report.file_categories}

@@ -20,13 +20,16 @@ from pydantic import ValidationError
 from .aggregate import baseline_reviewability
 from .categorizer import Categorizer
 from .config import DEFAULT_RISKY_PATHS, ReviewGateConfig
+from .count_warnings import warn_threshold_count_warnings
+from .ignored_paths import filter_out_ignored_paths
 from .linked_issue import linked_issue_warning
 from .mixed_concern import mixed_concern_warning
 from .pr_body import weak_body_warning
 from .report import suggested_labels
 from .risky_paths import risky_paths_warning
-from .schemas import EngineInput, EngineWarning, ReviewabilityReport
+from .schemas import ChangedFile, EngineInput, EngineWarning, PRRecord, ReviewabilityReport
 from .size import compute_size_stats, size_warnings
+from .tests_coverage import missing_tests_for_source_warning
 
 
 def analyze(engine_input: EngineInput) -> ReviewabilityReport:
@@ -54,12 +57,20 @@ def analyze(engine_input: EngineInput) -> ReviewabilityReport:
     config = _resolve_config(engine_input)
     risky_patterns = config.risky_paths or list(DEFAULT_RISKY_PATHS)
 
+    original_files = engine_input.files
+    active_files = filter_out_ignored_paths(original_files, config.ignored_paths)
+    pr_for_stats = _pr_record_for_active_files(
+        pr,
+        active_files,
+        original_file_count=len(original_files),
+    )
+
     categorizer = Categorizer(risky_patterns=risky_patterns)
-    file_categories = categorizer.categorize_all(engine_input.files)
+    file_categories = categorizer.categorize_all(active_files)
 
     stats = compute_size_stats(
-        additions=pr.additions,
-        deletions=pr.deletions,
+        additions=pr_for_stats.additions,
+        deletions=pr_for_stats.deletions,
         file_categories=file_categories,
     )
 
@@ -74,9 +85,14 @@ def analyze(engine_input: EngineInput) -> ReviewabilityReport:
         ),
     )
 
-    body_warning = weak_body_warning(pr.body)
-    if body_warning is not None:
-        warnings.append(body_warning)
+    warnings.extend(
+        warn_threshold_count_warnings(file_categories, config.thresholds.warn),
+    )
+
+    if config.policy.require_human_summary:
+        body_warning = weak_body_warning(pr.body)
+        if body_warning is not None:
+            warnings.append(body_warning)
 
     issue_warning = linked_issue_warning(
         pr.title,
@@ -100,6 +116,10 @@ def analyze(engine_input: EngineInput) -> ReviewabilityReport:
     if mixed_warning is not None:
         warnings.append(mixed_warning)
 
+    tests_warning = missing_tests_for_source_warning(file_categories)
+    if tests_warning is not None:
+        warnings.append(tests_warning)
+
     verdict = baseline_reviewability(warnings)
     return ReviewabilityReport(
         reviewability=verdict,
@@ -107,6 +127,27 @@ def analyze(engine_input: EngineInput) -> ReviewabilityReport:
         warnings=warnings,
         suggested_labels=suggested_labels(verdict, warnings, config.labels),
         file_categories=file_categories,
+    )
+
+
+def _pr_record_for_active_files(
+    pr: PRRecord,
+    active_files: list[ChangedFile],
+    *,
+    original_file_count: int,
+) -> PRRecord:
+    """Shrink PR aggregate stats only when ``ignored_paths`` removed files."""
+
+    if len(active_files) == original_file_count:
+        return pr
+    additions = sum(f.additions for f in active_files)
+    deletions = sum(f.deletions for f in active_files)
+    return pr.model_copy(
+        update={
+            "additions": additions,
+            "deletions": deletions,
+            "changed_files": len(active_files),
+        },
     )
 
 

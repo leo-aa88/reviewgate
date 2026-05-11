@@ -18,6 +18,7 @@ from reviewgate.app.analysis.pipeline import (
     _pull_doc_to_pr_record,
     run_pr_analysis_for_natural_key,
 )
+from reviewgate.core.config import Policy, ReviewGateConfig
 from reviewgate.app.settings import AppSettings
 from reviewgate.app.storage.repositories import AnalysisNaturalKey
 
@@ -63,10 +64,44 @@ def test_fail_fast_report_reviewability_fail() -> None:
             "head": {"ref": "h"},
         },
     )
-    report = _fail_fast_report(pr, HUGE_PR_FAIL_FAST_MESSAGE)
+    cfg = ReviewGateConfig()
+    report = _fail_fast_report(
+        pr,
+        HUGE_PR_FAIL_FAST_MESSAGE,
+        policy=cfg.policy,
+        labels=cfg.labels,
+    )
     assert report.reviewability == "FAIL"
     assert len(report.warnings) == 1
     assert report.warnings[0].code == "huge_pr_changed_files"
+
+
+def test_fail_fast_report_softens_when_fail_on_huge_pr_disabled() -> None:
+    """``policy.fail_on_huge_pr: false`` maps the §22.3 fail-fast tier to WARN."""
+
+    from reviewgate.app.analysis.pr_file_tiers import HUGE_PR_FAIL_FAST_MESSAGE
+
+    pr = _pull_doc_to_pr_record(
+        {
+            "title": "x",
+            "body": "",
+            "additions": 0,
+            "deletions": 0,
+            "changed_files": 1200,
+            "user": {"login": "u"},
+            "base": {"ref": "main"},
+            "head": {"ref": "h"},
+        },
+    )
+    policy = Policy(fail_on_huge_pr=False)
+    report = _fail_fast_report(
+        pr,
+        HUGE_PR_FAIL_FAST_MESSAGE,
+        policy=policy,
+        labels=ReviewGateConfig().labels,
+    )
+    assert report.reviewability == "WARN"
+    assert report.warnings[0].severity == "medium"
 
 
 def test_run_pr_analysis_head_sha_mismatch(monkeypatch: pytest.MonkeyPatch) -> None:

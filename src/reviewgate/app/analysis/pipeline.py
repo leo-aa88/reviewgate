@@ -28,7 +28,7 @@ from reviewgate.app.github.client import (
     fetch_pull_request_files,
 )
 from reviewgate.app.settings import AppSettings
-from reviewgate.core.config import ReviewGateConfig
+from reviewgate.core.config import Labels, Policy, ReviewGateConfig
 from reviewgate.core.engine import analyze
 from reviewgate.core.report import suggested_labels
 from reviewgate.core.schemas import (
@@ -37,7 +37,9 @@ from reviewgate.core.schemas import (
     EngineWarning,
     FileStatus,
     PRRecord,
+    Reviewability,
     ReviewabilityReport,
+    WarningSeverity,
 )
 from reviewgate.core.size import SizeStats
 
@@ -202,8 +204,14 @@ def _github_file_to_changed_file(
     )
 
 
-def _fail_fast_report(pr_record: PRRecord, user_message: str) -> ReviewabilityReport:
-    """Synthetic deterministic report for §22.3 fail-fast tier."""
+def _fail_fast_report(
+    pr_record: PRRecord,
+    user_message: str,
+    *,
+    policy: Policy,
+    labels: Labels,
+) -> ReviewabilityReport:
+    """Synthetic deterministic report for §22.3 fail-fast tier (>1000 files)."""
 
     raw = pr_record.additions + pr_record.deletions
     stats = SizeStats(
@@ -214,18 +222,19 @@ def _fail_fast_report(pr_record: PRRecord, user_message: str) -> ReviewabilityRe
         additions=pr_record.additions,
         deletions=pr_record.deletions,
     )
+    verdict: Reviewability = "FAIL" if policy.fail_on_huge_pr else "WARN"
+    severity: WarningSeverity = "high" if policy.fail_on_huge_pr else "medium"
     warn = EngineWarning(
         code=_WARN_HUGE_PR,
-        severity="high",
+        severity=severity,
         message=user_message,
         evidence={"changed_files": pr_record.changed_files},
     )
-    labels_cfg = ReviewGateConfig().labels
     return ReviewabilityReport(
-        reviewability="FAIL",
+        reviewability=verdict,
         stats=stats.model_dump(),
         warnings=[warn],
-        suggested_labels=suggested_labels("FAIL", [warn], labels_cfg),
+        suggested_labels=suggested_labels(verdict, [warn], labels),
         file_categories=[],
         split_hints=[],
         reviewer_checklist=[],
@@ -281,24 +290,6 @@ def run_pr_analysis_for_natural_key(
                 raise AnalysisPipelineUserError(msg, error_code="head_sha_mismatch")
 
     pr_record = _pull_doc_to_pr_record(pr_doc)
-    tier_cls = classify_changed_file_count(pr_record.changed_files)
-    if tier_cls.tier == "fail_fast":
-        return (
-            _fail_fast_report(pr_record, tier_cls.fail_fast_message or ""),
-            ReviewGateConfig(),
-            None,
-        )
-
-    files_raw = fetch_pull_request_files(
-        access.token,
-        owner=ctx.owner,
-        repo=ctx.name,
-        pull_number=key.pull_number,
-        http_client=http_client,
-    )
-    changed_files = [
-        _github_file_to_changed_file(f, include_patch=False) for f in files_raw
-    ]
 
     base_obj = pr_doc.get("base")
     base_ref = ""
@@ -328,6 +319,30 @@ def run_pr_analysis_for_natural_key(
         )
         msg = "effective config hash changed since job was enqueued"
         raise AnalysisPipelineUserError(msg, error_code="config_hash_mismatch")
+
+    tier_cls = classify_changed_file_count(pr_record.changed_files)
+    if tier_cls.tier == "fail_fast":
+        return (
+            _fail_fast_report(
+                pr_record,
+                tier_cls.fail_fast_message or "",
+                policy=load_result.config.policy,
+                labels=load_result.config.labels,
+            ),
+            load_result.config,
+            None,
+        )
+
+    files_raw = fetch_pull_request_files(
+        access.token,
+        owner=ctx.owner,
+        repo=ctx.name,
+        pull_number=key.pull_number,
+        http_client=http_client,
+    )
+    changed_files = [
+        _github_file_to_changed_file(f, include_patch=False) for f in files_raw
+    ]
 
     engine_input = EngineInput(
         pr=pr_record,

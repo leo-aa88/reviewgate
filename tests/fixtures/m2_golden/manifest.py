@@ -155,7 +155,7 @@ CASES: Final[tuple[GoldenCase, ...]] = (
         fixture_filename="06_risky_migration_pr.json",
         targeted_heuristics=("§10.6 risky path", "§10.10 rationale present"),
         expected_reviewability="PASS",
-        expected_warning_codes=frozenset(),
+        expected_warning_codes=frozenset({"missing_tests_for_source"}),
         forbidden_warning_codes=frozenset(
             {
                 "risky_paths_without_rationale",
@@ -164,7 +164,7 @@ CASES: Final[tuple[GoldenCase, ...]] = (
                 "missing_linked_issue",
             }
         ),
-        expected_label_subset=frozenset({"reviewability-pass"}),
+        expected_label_subset=frozenset({"reviewability-pass", "needs-tests"}),
         expected_min_files_changed=1,
     ),
     GoldenCase(
@@ -182,10 +182,16 @@ CASES: Final[tuple[GoldenCase, ...]] = (
                 "risky_paths_without_rationale",
                 "weak_pr_body",
                 "missing_linked_issue",
+                "missing_tests_for_source",
             }
         ),
         expected_label_subset=frozenset(
-            {"reviewability-fail", "missing-context", "risky-change"}
+            {
+                "reviewability-fail",
+                "missing-context",
+                "risky-change",
+                "needs-tests",
+            }
         ),
         expected_min_files_changed=2,
     ),
@@ -198,7 +204,7 @@ CASES: Final[tuple[GoldenCase, ...]] = (
             "§10.4 lockfile exclusion",
         ),
         expected_reviewability="PASS",
-        expected_warning_codes=frozenset(),
+        expected_warning_codes=frozenset({"many_dependency_files"}),
         forbidden_warning_codes=frozenset(
             {
                 "too_large_human_loc",
@@ -206,7 +212,7 @@ CASES: Final[tuple[GoldenCase, ...]] = (
                 "mixed_concern_clusters",
             }
         ),
-        expected_label_subset=frozenset({"reviewability-pass"}),
+        expected_label_subset=frozenset({"reviewability-pass", "dependency-change"}),
         expected_min_files_changed=2,
     ),
     GoldenCase(
@@ -218,7 +224,7 @@ CASES: Final[tuple[GoldenCase, ...]] = (
             "no §10.10 risky / weak-body warnings",
         ),
         expected_reviewability="PASS",
-        expected_warning_codes=frozenset(),
+        expected_warning_codes=frozenset({"many_dependency_files"}),
         forbidden_warning_codes=frozenset(
             {
                 "weak_pr_body",
@@ -227,7 +233,7 @@ CASES: Final[tuple[GoldenCase, ...]] = (
                 "mixed_concern_clusters",
             }
         ),
-        expected_label_subset=frozenset({"reviewability-pass"}),
+        expected_label_subset=frozenset({"reviewability-pass", "dependency-change"}),
         expected_min_files_changed=4,
     ),
     GoldenCase(

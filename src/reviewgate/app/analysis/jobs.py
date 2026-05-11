@@ -62,6 +62,9 @@ from reviewgate.app.storage.repositories import (
 )
 from reviewgate.core.config import ReviewGateConfig
 from reviewgate.core.schemas import ReviewabilityReport
+from reviewgate.app.storage.installation_purge import (
+    purge_analyses_for_uninstalled_installations,
+)
 from reviewgate.app.storage.webhook_purge import purge_webhook_deliveries_older_than
 from reviewgate.app.webhooks.enqueue_policy import installation_repository_may_enqueue_jobs
 
@@ -333,4 +336,27 @@ def purge_old_webhook_deliveries(_payload: dict[str, object] | None = None) -> N
     session_factory = create_session_factory(engine)
     with session_factory() as session:
         purge_webhook_deliveries_older_than(session)
+        session.commit()
+
+
+@dramatiq.actor(max_retries=2, time_limit=_PURGE_TIME_LIMIT_MS)
+def purge_analyses_for_old_uninstalls(_payload: dict[str, object] | None = None) -> None:
+    """Delete ``analyses`` / ``analysis_reports`` for installs deleted >30 days ago (§23.1).
+
+    Operators should schedule this alongside
+    :func:`purge_old_webhook_deliveries` (issue #34). The actor is safe to call
+    with :meth:`dramatiq.Actor.fn` from tests or cron.
+
+    Args:
+        _payload: Unused envelope for parity with other maintenance actors.
+    """
+
+    del _payload
+    settings = AppSettings()
+    engine = create_engine_from_settings(settings)
+    if engine is None:
+        return
+    session_factory = create_session_factory(engine)
+    with session_factory() as session:
+        purge_analyses_for_uninstalled_installations(session)
         session.commit()

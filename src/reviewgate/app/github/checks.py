@@ -38,7 +38,7 @@ from reviewgate.app.github.client import (
     _raise_for_github_response,
     _validate_repo_segment,
 )
-from reviewgate.core.config import StatusCheck
+from reviewgate.core.config import StatusCheck, StatusFailOn
 from reviewgate.core.schemas import Reviewability
 
 logger = logging.getLogger(__name__)
@@ -49,28 +49,46 @@ _MIN_HEAD_SHA_LENGTH: Final[int] = 7
 
 _CheckConclusion = Literal["success", "neutral", "failure"]
 
+_REVIEWABILITY_RANK: Final[dict[Reviewability, int]] = {
+    "PASS": 0,
+    "WARN": 1,
+    "FAIL": 2,
+}
+_FAIL_ON_RANK: Final[dict[StatusFailOn, int]] = {
+    "PASS": 0,
+    "WARN": 1,
+    "FAIL": 2,
+}
+
 
 def reviewability_check_conclusion(
     reviewability: Reviewability,
     *,
+    fail_on: StatusFailOn,
     warn_blocks_merge: bool,
 ) -> _CheckConclusion:
     """Map baseline reviewability to a GitHub check ``conclusion`` (§13.10).
 
     Args:
         reviewability: Deterministic ``PASS`` / ``WARN`` / ``FAIL``.
+        fail_on: Lowest reviewability tier that maps to a ``failure`` conclusion
+            when not combined with ``warn_blocks_merge`` (``FAIL`` default).
         warn_blocks_merge: When ``True``, ``WARN`` is published as ``failure`` so
-            it blocks merge; when ``False``, ``WARN`` maps to ``neutral``.
+            it blocks merge; when ``False``, ``WARN`` maps to ``neutral`` unless
+            ``fail_on`` already treats ``WARN`` as blocking.
 
     Returns:
         ``success`` for ``PASS``, ``failure`` for ``FAIL``, and ``neutral`` or
-        ``failure`` for ``WARN`` depending on ``warn_blocks_merge``.
+        ``failure`` for ``WARN`` depending on ``fail_on`` and ``warn_blocks_merge``.
     """
 
+    r_verdict = _REVIEWABILITY_RANK[reviewability]
+    r_fail_on = _FAIL_ON_RANK[fail_on]
+    if r_verdict >= r_fail_on:
+        return "failure"
     if reviewability == "PASS":
         return "success"
-    if reviewability == "FAIL":
-        return "failure"
+    # WARN with verdict strictly better than fail_on (only possible when fail_on is FAIL)
     return "failure" if warn_blocks_merge else "neutral"
 
 
@@ -116,6 +134,7 @@ def create_completed_reviewability_check_run(
 
     conclusion = reviewability_check_conclusion(
         reviewability,
+        fail_on=status_check.fail_on,
         warn_blocks_merge=status_check.warn_blocks_merge,
     )
     own = _validate_repo_segment("owner", owner)

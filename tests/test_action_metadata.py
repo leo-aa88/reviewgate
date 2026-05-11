@@ -29,9 +29,8 @@ import pytest
 import yaml
 
 _REPO_ROOT: Final[Path] = Path(__file__).resolve().parent.parent
-_ACTION_YML: Final[Path] = (
-    _REPO_ROOT / "src" / "reviewgate_action" / "action.yml"
-)
+_ACTION_YML: Final[Path] = _REPO_ROOT / "action.yml"
+_LEGACY_ACTION_YML: Final[Path] = _REPO_ROOT / "src" / "reviewgate_action" / "action.yml"
 _ACTION_README: Final[Path] = (
     _REPO_ROOT / "src" / "reviewgate_action" / "README.md"
 )
@@ -59,7 +58,7 @@ _DECLARED_OUTPUTS: Final[frozenset[str]] = frozenset({"reviewability", "report-j
 
 @pytest.fixture(scope="module")
 def action_metadata() -> dict[str, Any]:
-    """Parse `src/reviewgate_action/action.yml` once per test module."""
+    """Parse root `action.yml` once per test module."""
 
     raw = _ACTION_YML.read_text(encoding="utf-8")
     parsed = yaml.safe_load(raw)
@@ -73,9 +72,15 @@ def test_action_yml_exists_at_documented_path() -> None:
     """§14 documents the consumer path; the file has to exist there."""
 
     assert _ACTION_YML.is_file(), (
-        f"src/reviewgate_action/action.yml is missing; consumers reference "
+        f"action.yml is missing; consumers reference "
         f"{_ACTION_YML.relative_to(_REPO_ROOT)}"
     )
+
+
+def test_legacy_subdirectory_action_yml_still_exists() -> None:
+    """The old alpha subdirectory path remains available during beta."""
+
+    assert _LEGACY_ACTION_YML.is_file()
 
 
 def test_action_metadata_declares_name_and_description(
@@ -238,20 +243,15 @@ def test_action_declares_runtime_outputs(
 def test_top_level_readme_includes_design_doc_snippet() -> None:
     """The §14 reference snippet must be reproducible from the README.
 
-    The ``uses:`` value uses GitHub Actions' documented
-    ``{owner}/{repo}/{path}@{ref}`` form so consumers can reference
-    the Action at its real subdirectory location
-    (``src/reviewgate_action/action.yml``). This is *not* a typo of the
-    ``{owner}/{repo}@{ref}`` form -- the official "Using actions"
-    docs cover both shapes, and the path form survives the future
-    split into the standalone `reviewgate/reviewgate-action` repo.
+    The public ``uses:`` value intentionally uses the simple
+    ``{owner}/{repo}@{ref}`` form so launch docs do not teach the old
+    alpha subdirectory path.
     """
 
     readme = _TOP_README.read_text(encoding="utf-8")
-    assert "leo-aa88/reviewgate/src/reviewgate_action@main" in readme, (
-        "Top-level README must reference the Action at its subdirectory "
-        "consumer path (DESIGN.md §14, GitHub Actions "
-        "{owner}/{repo}/{path}@{ref} form)"
+    assert "leo-aa88/reviewgate@main" in readme, (
+        "Top-level README must reference the root Action path "
+        "(DESIGN.md §14, GitHub Actions {owner}/{repo}@{ref} form)"
     )
     assert "github-token: ${{ secrets.GITHUB_TOKEN }}" in readme
     assert "fail-on: FAIL" in readme
@@ -278,40 +278,30 @@ def _uses_refs_in_yaml_blocks(readme_text: str) -> list[str]:
     return refs
 
 
-def test_action_subdirectory_path_in_uses_resolves_to_real_action_yml() -> None:
-    """The README's ``uses:`` subdirectory path must hit a real ``action.yml``.
+def test_action_root_path_in_uses_resolves_to_real_action_yml() -> None:
+    """The README's public ``uses:`` path must hit the root ``action.yml``.
 
     Concretely: extract every ``- uses:`` value inside a fenced
-    ```yaml block in the top-level README, find the
-    ``leo-aa88/reviewgate/<path>@<ref>`` reference, and assert
-    ``<repo>/<path>/action.yml`` exists on disk. Catches the
-    foot-gun of documenting a path that does not match the actual
-    repository layout.
+    ```yaml block in the top-level README and assert the public
+    ReviewGate references use ``leo-aa88/reviewgate@<ref>``.
     """
 
     readme = _TOP_README.read_text(encoding="utf-8")
     refs = _uses_refs_in_yaml_blocks(readme)
     assert refs, "README must contain at least one fenced YAML `uses:` line"
 
-    repo_prefix = "leo-aa88/reviewgate/"
+    repo_prefix = "leo-aa88/reviewgate"
     matching = [r for r in refs if r.startswith(repo_prefix)]
     assert matching, (
         f"README's fenced YAML must reference the Action via "
-        f"`uses: {repo_prefix}<path>@<ref>`; got refs={refs}"
+        f"`uses: {repo_prefix}@<ref>`; got refs={refs}"
     )
     for ref in matching:
-        path_segment = ref[len(repo_prefix) :].split("@", 1)[0].strip()
-        assert path_segment, f"empty subdirectory path in `uses: {ref}`"
-        resolved = _REPO_ROOT / path_segment / "action.yml"
-        assert resolved.is_file(), (
-            f"README documents `uses: {ref}` but "
-            f"{resolved.relative_to(_REPO_ROOT)} does not exist"
+        assert ref.startswith(f"{repo_prefix}@"), (
+            f"README documents `{ref}`, but launch docs should use the "
+            "root Action path instead of a subdirectory path"
         )
-        assert resolved == _ACTION_YML, (
-            f"documented `uses: {ref}` resolves to "
-            f"{resolved.relative_to(_REPO_ROOT)}, but the test fixture "
-            f"expects {_ACTION_YML.relative_to(_REPO_ROOT)}"
-        )
+        assert _ACTION_YML.is_file()
 
 
 # --- shell validation branches (composite step is bash, so the input ----

@@ -1,0 +1,161 @@
+# reviewgate-action: canonical root GitHub Action entry point.
+
+name: ReviewGate
+description: >-
+  Run the reviewgate-core deterministic reviewability engine on a pull
+  request. Optionally posts a summary comment and fails the workflow
+  when the configured threshold is reached. See docs/DESIGN.md §14.
+author: ReviewGate contributors
+branding:
+  icon: check-square
+  color: blue
+
+inputs:
+  github-token:
+    description: >-
+      GitHub token used to fetch PR metadata and (when `post-comment`
+      is true) post the summary comment. The token needs at minimum
+      `pull-requests: read` and `contents: read`; granting
+      `pull-requests: write` is required for `post-comment: true`.
+    required: true
+
+  fail-on:
+    description: >-
+      Reviewability verdict (or stronger) at which the workflow exits
+      non-zero. One of `PASS`, `WARN`, `FAIL`, or `never`.
+    required: false
+    default: FAIL
+
+  post-comment:
+    description: >-
+      When `true`, post or upsert the ReviewGate marker comment when
+      §14.1 coexistence allows the Action to post.
+    required: false
+    default: "true"
+
+  mode:
+    description: >-
+      Coexistence mode with the hosted ReviewGate App (§14.1). One of
+      `auto`, `action`, or `quiet`. Use `action` for Action-only installs.
+    required: false
+    default: auto
+
+  python-version:
+    description: >-
+      Python version pin for `actions/setup-python`. Default `3.12`.
+    required: false
+    default: "3.12"
+
+  working-directory:
+    description: >-
+      Workspace root used to look up `.reviewgate.yml`. Defaults to
+      `$GITHUB_WORKSPACE`.
+    required: false
+    default: ""
+
+outputs:
+  reviewability:
+    description: >-
+      §10.13 verdict from the deterministic engine. One of `PASS`,
+      `WARN`, or `FAIL`. Empty when the run failed before producing a report.
+    value: ${{ steps.run.outputs.reviewability }}
+
+  report-json:
+    description: >-
+      §10.2 ReviewabilityReport as a single-line JSON document. Always
+      valid JSON; falls back to `{}` when no report was produced.
+    value: ${{ steps.run.outputs.report-json }}
+
+runs:
+  using: composite
+  steps:
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ inputs.python-version }}
+
+    - name: Install reviewgate-action runtime
+      shell: bash
+      env:
+        REVIEWGATE_ACTION_PATH: ${{ github.action_path }}
+      run: |
+        set -euo pipefail
+        # Root action entry point: github.action_path is the repository root.
+        python -m pip install --upgrade pip
+        python -m pip install "${REVIEWGATE_ACTION_PATH}"
+
+    - id: run
+      name: Run ReviewGate
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ inputs.github-token }}
+        REVIEWGATE_FAIL_ON: ${{ inputs.fail-on }}
+        REVIEWGATE_POST_COMMENT: ${{ inputs.post-comment }}
+        REVIEWGATE_MODE: ${{ inputs.mode }}
+        REVIEWGATE_WORKING_DIRECTORY: ${{ inputs.working-directory }}
+      run: |
+        set -euo pipefail
+
+        case "${REVIEWGATE_FAIL_ON}" in
+          PASS|WARN|FAIL|never) ;;
+          *)
+            echo "::error::fail-on must be one of PASS, WARN, FAIL, never (got: ${REVIEWGATE_FAIL_ON})"
+            exit 2
+            ;;
+        esac
+
+        case "${REVIEWGATE_POST_COMMENT}" in
+          true|false) ;;
+          *)
+            echo "::error::post-comment must be 'true' or 'false' (got: ${REVIEWGATE_POST_COMMENT})"
+            exit 2
+            ;;
+        esac
+
+        case "${REVIEWGATE_MODE}" in
+          auto|action|quiet) ;;
+          *)
+            echo "::error::mode must be one of auto, action, quiet (got: ${REVIEWGATE_MODE})"
+            exit 2
+            ;;
+        esac
+
+        workdir="${REVIEWGATE_WORKING_DIRECTORY:-${GITHUB_WORKSPACE}}"
+
+        engine_input="$(mktemp -t reviewgate-input.XXXXXX.json)"
+        report_json="$(mktemp -t reviewgate-report.XXXXXX.json)"
+        trap 'rm -f "${engine_input}" "${report_json}"' EXIT
+
+        set +e
+        python -m reviewgate_action.fetch_pr --output "${engine_input}"
+        fetch_exit=$?
+        if [ "${fetch_exit}" -eq 0 ]; then
+          python -m reviewgate_action.run_core \
+            --input "${engine_input}" \
+            --workspace "${workdir}" \
+            --fail-on "${REVIEWGATE_FAIL_ON}" \
+            --mode "${REVIEWGATE_MODE}" \
+            --post-comment "${REVIEWGATE_POST_COMMENT}" \
+            --output-json "${report_json}" \
+            > /dev/null
+          pipeline_exit=$?
+        else
+          pipeline_exit=${fetch_exit}
+        fi
+        set -e
+
+        if [ -s "${report_json}" ]; then
+          reviewability="$(python -c 'import json,sys; print(json.load(open(sys.argv[1]))["reviewability"])' "${report_json}")"
+          report_oneline="$(python -c 'import json,sys; print(json.dumps(json.load(open(sys.argv[1]))))' "${report_json}")"
+          {
+            echo "reviewability=${reviewability}"
+            echo "report-json=${report_oneline}"
+          } >> "${GITHUB_OUTPUT}"
+        else
+          {
+            echo "reviewability="
+            echo "report-json={}"
+          } >> "${GITHUB_OUTPUT}"
+        fi
+
+        exit "${pipeline_exit}"

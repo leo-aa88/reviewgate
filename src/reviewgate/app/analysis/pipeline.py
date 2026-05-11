@@ -1,9 +1,12 @@
-"""Hosted worker analysis pipeline (``docs/DESIGN.md`` §15; issue #50).
+"""Hosted worker analysis pipeline (``docs/DESIGN.md`` §15; issues #50, #54).
 
 Normalizes GitHub pull request data, applies §22.3 file-count tiering, fetches
 effective repository config, and runs :func:`reviewgate.core.engine.analyze`.
 Patches are not passed into the deterministic engine by default (``docs/DESIGN.md``
 §11.5 / §21.2).
+
+:func:`run_pr_analysis_for_natural_key` returns ``(report, config)`` so callers
+can apply §14.1 ``mode`` when publishing GitHub feedback (issue #54).
 """
 
 from __future__ import annotations

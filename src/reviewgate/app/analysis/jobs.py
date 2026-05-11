@@ -31,6 +31,10 @@ from typing import Final
 
 import dramatiq
 
+from reviewgate.app.analysis.result_cache import (
+    get_cached_final_report,
+    set_cached_final_report,
+)
 from reviewgate.app.analysis.worker_job_lock import worker_job_lock_hold
 from reviewgate.app.settings import AppSettings
 from reviewgate.app.storage.db import create_engine_from_settings, create_session_factory
@@ -70,7 +74,9 @@ def run_pr_analysis_stub(payload: dict[str, object]) -> None:
             are present, the stub persists ``analyses`` lifecycle rows per issue
             #46 (``running`` then ``completed`` with reviewability ``PASS``), except
             when another worker already holds ``running`` (``already_running``) or
-            the row is ``already_completed``.
+            the row is ``already_completed``. When Redis is configured, §13.6
+            final-result cache (issue #48) is consulted after the worker lock and
+            populated after a fresh ``completed`` transition.
     """
 
     settings = AppSettings()
@@ -117,6 +123,14 @@ def run_pr_analysis_stub(payload: dict[str, object]) -> None:
             ):
                 return
 
+            # §13.6 final-result cache (issue #48): composite key always includes
+            # ``head_sha`` via :func:`~reviewgate.app.analysis.cache.analysis_cache_key`.
+            if natural is not None and settings.redis_url is not None:
+                cached = get_cached_final_report(settings, natural)
+                if cached is not None:
+                    del payload
+                    return
+
             if natural is not None:
                 analysis_id, begin_kind = begin_analysis_for_job_start(
                     session,
@@ -128,6 +142,15 @@ def run_pr_analysis_stub(payload: dict[str, object]) -> None:
                         analysis_id,
                         reviewability="PASS",
                     )
+                    if settings.redis_url is not None:
+                        set_cached_final_report(
+                            settings,
+                            natural,
+                            {
+                                "reviewability": "PASS",
+                                "result_cache_stub": True,
+                            },
+                        )
             session.commit()
 
     del payload

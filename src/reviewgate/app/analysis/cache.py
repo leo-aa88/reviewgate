@@ -16,8 +16,9 @@ Key layout (versioned, colon-separated)::
 
 Where:
 
-* ``<area>`` is ``cache:analysis`` for final cached JSON blobs (§13.6 TTL
-  story; wiring in issue #48) or ``lock:job`` for Redis locks held during a
+* ``<area>`` is ``cache:analysis`` for final cached JSON blobs (§13.6 TTL;
+  see :mod:`reviewgate.app.analysis.result_cache`) or ``lock:job`` for Redis
+  locks held during a
   single analysis run (§13.7 mechanism #3; wiring in issue #47).
 * ``v1`` bumps if we ever need incompatible key layouts while sharing one Redis.
 * Segments use ``str(repository_id)`` (lowercase UUID), decimal ``pull_number``,

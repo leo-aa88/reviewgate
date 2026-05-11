@@ -90,6 +90,8 @@ def test_run_pr_analysis_stub_marks_analysis_completed_with_natural_key(
 
     monkeypatch.setattr(jobs_mod, "create_engine_from_settings", lambda _s: engine)
     monkeypatch.setattr(jobs_mod, "create_session_factory", lambda _e: factory)
+    monkeypatch.setattr(jobs_mod, "get_cached_final_report", lambda *_a, **_k: None)
+    monkeypatch.setattr(jobs_mod, "set_cached_final_report", lambda *_a, **_k: None)
 
     from reviewgate.app.analysis.jobs import run_pr_analysis_stub
 
@@ -111,6 +113,99 @@ def test_run_pr_analysis_stub_marks_analysis_completed_with_natural_key(
         ).scalar_one()
         assert row.status == "completed"
         assert row.reviewability == "PASS"
+
+
+def test_run_pr_analysis_stub_cache_hit_skips_db_writes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Issue #48: a cache hit returns without mutating ``analyses``."""
+
+    import uuid
+    from contextlib import nullcontext
+    from datetime import UTC, datetime
+
+    import dramatiq
+    from dramatiq.brokers.stub import StubBroker
+    from sqlalchemy import create_engine, select
+    from sqlalchemy.orm import sessionmaker
+
+    from reviewgate.app.storage.models import Analysis, Installation, Repository
+
+    dramatiq.set_broker(StubBroker())
+
+    def _subset_metadata() -> object:
+        from sqlalchemy import MetaData
+
+        md = MetaData()
+        Installation.__table__.to_metadata(md)
+        Repository.__table__.to_metadata(md)
+        Analysis.__table__.to_metadata(md)
+        return md
+
+    engine = create_engine("sqlite+pysqlite:///:memory:", future=True)
+    _subset_metadata().create_all(engine)
+    factory = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
+
+    inst_id = uuid.uuid4()
+    repo_uuid = uuid.uuid4()
+    now = datetime.now(tz=UTC)
+    with factory() as setup_session:
+        setup_session.add(
+            Installation(
+                id=inst_id,
+                github_installation_id=9200,
+                account_login="acme",
+                account_type="Organization",
+                created_at=now,
+            ),
+        )
+        setup_session.add(
+            Repository(
+                id=repo_uuid,
+                installation_id=inst_id,
+                github_repository_id=9292,
+                owner="acme",
+                name="demo",
+                full_name="acme/demo",
+                private=False,
+                active=True,
+                created_at=now,
+            ),
+        )
+        setup_session.commit()
+
+    import reviewgate.app.analysis.jobs as jobs_mod
+
+    monkeypatch.setattr(jobs_mod, "create_engine_from_settings", lambda _s: engine)
+    monkeypatch.setattr(jobs_mod, "create_session_factory", lambda _e: factory)
+    monkeypatch.setattr(
+        jobs_mod,
+        "get_cached_final_report",
+        lambda *_a, **_k: {"reviewability": "PASS", "cached": True},
+    )
+    cache_setter = MagicMock()
+    monkeypatch.setattr(jobs_mod, "set_cached_final_report", cache_setter)
+    monkeypatch.setattr(jobs_mod, "worker_job_lock_hold", lambda *_a, **_k: nullcontext(True))
+    monkeypatch.setenv("REVIEWGATE_REDIS_URL", "redis://127.0.0.1:6379/0")
+
+    from reviewgate.app.analysis.jobs import run_pr_analysis_stub
+
+    run_pr_analysis_stub(
+        {
+            "github_installation_id": 9200,
+            "github_repository_id": 9292,
+            "reviewgate_repository_id": str(repo_uuid),
+            "reviewgate_pull_number": 1,
+            "reviewgate_head_sha": "sha1",
+            "reviewgate_config_hash": "ch",
+            "reviewgate_pr_metadata_hash": "mh",
+        },
+    )
+
+    with factory() as verify:
+        rows = verify.execute(select(Analysis)).scalars().all()
+        assert rows == []
+    cache_setter.assert_not_called()
 
 
 def test_run_pr_analysis_stub_skips_db_when_worker_lock_not_held(
@@ -176,6 +271,8 @@ def test_run_pr_analysis_stub_skips_db_when_worker_lock_not_held(
 
     monkeypatch.setattr(jobs_mod, "create_engine_from_settings", lambda _s: engine)
     monkeypatch.setattr(jobs_mod, "create_session_factory", lambda _e: factory)
+    monkeypatch.setattr(jobs_mod, "get_cached_final_report", lambda *_a, **_k: None)
+    monkeypatch.setattr(jobs_mod, "set_cached_final_report", lambda *_a, **_k: None)
 
     @contextmanager
     def _deny_lock(*_a: object, **_k: object) -> object:

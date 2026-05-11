@@ -184,7 +184,12 @@ def test_pipeline_config_missing_via_contents_404() -> None:
             http_client=client,
         )
     assert cfg == ReviewGateConfig()
-    assert report.reviewability in {"PASS", "WARN", "FAIL"}
+    assert report.reviewability == "WARN"
+    assert report.stats["files_changed"] == 2
+    assert report.stats["human_loc_changed"] == 6
+    codes = {w.code for w in report.warnings}
+    assert "weak_pr_body" in codes
+    assert "missing_linked_issue" in codes
 
 
 def test_pipeline_config_present_via_contents_yml() -> None:

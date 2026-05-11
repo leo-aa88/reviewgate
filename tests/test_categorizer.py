@@ -303,22 +303,22 @@ def test_every_category_label_in_design_doc_is_reachable() -> None:
     """
 
     samples = [
-        "src/utils.py",                          # source
-        "tests/test_x.py",                       # test, source
-        "docs/index.md",                         # docs
-        "config/settings.yaml",                  # config
-        "package.json",                          # dependency
-        "yarn.lock",                             # lockfile
-        "src/migrations/001.sql",                # migration, source
-        "infra/k8s/deployment.yaml",             # infra
-        "src/auth/login.py",                     # auth, source
-        "billing/invoice.py",                    # billing, source
-        "src/generated/api.go",                  # generated, source
-        "ui/__snapshots__/Btn.snap",             # snapshot
-        "vendor/lib/foo.go",                     # vendored, source
-        "static/app.min.js",                     # minified, source
-        "logo.png",                              # asset
-        "data/payload.bin",                      # unknown
+        "src/utils.py",  # source
+        "tests/test_x.py",  # test, source
+        "docs/index.md",  # docs
+        "config/settings.yaml",  # config
+        "package.json",  # dependency
+        "yarn.lock",  # lockfile
+        "src/migrations/001.sql",  # migration, source
+        "infra/k8s/deployment.yaml",  # infra
+        "src/auth/login.py",  # auth, source
+        "billing/invoice.py",  # billing, source
+        "src/generated/api.go",  # generated, source
+        "ui/__snapshots__/Btn.snap",  # snapshot
+        "vendor/lib/foo.go",  # vendored, source
+        "static/app.min.js",  # minified, source
+        "logo.png",  # asset
+        "data/payload.bin",  # unknown
     ]
 
     seen: set[FileCategory] = set()
@@ -326,9 +326,22 @@ def test_every_category_label_in_design_doc_is_reachable() -> None:
         seen.update(_categorize_one(name).categories)
 
     expected: set[FileCategory] = {
-        "source", "test", "docs", "config", "dependency", "lockfile",
-        "migration", "infra", "auth", "billing", "generated", "snapshot",
-        "vendored", "minified", "asset", "unknown",
+        "source",
+        "test",
+        "docs",
+        "config",
+        "dependency",
+        "lockfile",
+        "migration",
+        "infra",
+        "auth",
+        "billing",
+        "generated",
+        "snapshot",
+        "vendored",
+        "minified",
+        "asset",
+        "unknown",
     }
     missing = expected - seen
     assert not missing, f"\u00a710.5 categories never reached: {sorted(missing)}"

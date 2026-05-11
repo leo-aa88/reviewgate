@@ -63,8 +63,9 @@ DEFAULT_IGNORED_PATHS: Final[tuple[str, ...]] = ()
 applied by the categorizer regardless of this user-facing list."""
 
 # §10.7 dependency / lockfile patterns. Engine internals: applied by the
-# categorizer (#9) for human-LOC exclusion and dependency-edit warnings;
-# not exposed as `.reviewgate.yml` keys in the §12 schema.
+# categorizer (#9) for the ``dependency`` / ``lockfile`` labels and for
+# dependency-edit count warnings; lockfile rows feed §10.4 exclusions.
+# Dependency automation overrides live in ``automation_pr`` (§10.4.1).
 DEFAULT_DEPENDENCY_FILES: Final[tuple[str, ...]] = (
     "package.json",
     "requirements.txt",
@@ -141,7 +142,9 @@ class WarnThresholds(StrictModel):
         default=25, ge=0, description="Warn when changed files exceed this count (§10.3)."
     )
     human_loc_changed: int = Field(
-        default=800, ge=0, description="Warn on human-authored LOC above this (§10.3, §10.4)."
+        default=800,
+        ge=0,
+        description="Warn when human_loc_changed exceeds this (§10.3, §10.4 post-exclusion).",
     )
     risky_files_changed: int = Field(
         default=2,
@@ -167,7 +170,9 @@ class FailThresholds(StrictModel):
         default=75, ge=0, description="Fail when changed files exceed this count (§10.3)."
     )
     human_loc_changed: int = Field(
-        default=2500, ge=0, description="Fail on human-authored LOC above this (§10.3, §10.4)."
+        default=2500,
+        ge=0,
+        description="Fail when human_loc_changed exceeds this (§10.3, §10.4 post-exclusion).",
     )
     risky_files_without_context: int = Field(
         default=1,
@@ -196,7 +201,8 @@ class Policy(StrictModel):
         default=True, description="Treat missing linked issue as a deterministic warning (§10.10)."
     )
     require_human_summary: bool = Field(
-        default=True, description="Treat missing human PR summary as a deterministic warning (§10.10)."
+        default=True,
+        description="Treat missing human PR summary as a deterministic warning (§10.10).",
     )
     fail_on_risky_paths_without_context: bool = Field(
         default=True, description="Escalate risky-path edits with no rationale to FAIL (§10.10)."
@@ -266,7 +272,9 @@ class Labels(StrictModel):
 class StatusCheck(StrictModel):
     """`status_check` block (§12, §13.10)."""
 
-    enabled: bool = Field(default=True, description="If false, skip Checks API publication (§13.10).")
+    enabled: bool = Field(
+        default=True, description="If false, skip Checks API publication (§13.10)."
+    )
     name: str = Field(
         default=DEFAULT_STATUS_CHECK_NAME,
         min_length=1,

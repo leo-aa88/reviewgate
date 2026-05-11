@@ -72,7 +72,9 @@ class EngineInput(StrictModel):
     """Top-level deterministic engine input envelope (\u00a710.1)."""
 
     pr: PRRecord = Field(description="Normalized PR metadata (\u00a710.1).")
-    files: list[ChangedFile] = Field(description="Changed files with optional patches (\u00a710.1).")
+    files: list[ChangedFile] = Field(
+        description="Changed files with optional patches (\u00a710.1)."
+    )
     config: dict[str, JsonValue] = Field(
         default_factory=dict,
         description=(
@@ -105,7 +107,17 @@ class FileCategoryRow(StrictModel):
         description="One or more categories from the \u00a710.5 closed set.",
     )
     risky: bool = Field(description="Whether the path matches risky heuristics (\u00a710.5).")
-    human_authored: bool = Field(description="Whether lines count toward human-authored LOC (\u00a710.5).")
+    human_authored: bool = Field(
+        description=(
+            "When ``False``, this file's ``changes`` are subtracted in "
+            "\u00a710.4 ``excluded_loc_changed`` (lockfiles, generated, "
+            "snapshot, vendored, minified). Known dependency bots may "
+            "receive an additional manifest-only adjustment "
+            "(:mod:`reviewgate.core.automation_pr`). The JSON field "
+            "``human_loc_changed`` names the post-processing remainder used "
+            "for §10.3 thresholds."
+        ),
+    )
     changes: int = Field(ge=0, description="Changed line count used for reporting (\u00a710.5).")
 
 

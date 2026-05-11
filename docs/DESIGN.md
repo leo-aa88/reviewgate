@@ -164,7 +164,7 @@ Responsibilities:
 
 * Validate normalized PR input.
 * Categorize changed files.
-* Compute raw LOC and human-authored LOC.
+* Compute raw LOC and post-exclusion ``human_loc_changed`` (§10.4).
 * Detect risky paths.
 * Detect weak or missing PR context.
 * Detect large diffs.
@@ -285,8 +285,8 @@ The revised MVP is the hosted GitHub App plus open-source core and GitHub Action
 * pure function boundary with zero I/O
 * config schema
 * file categorization
-* human-authored LOC calculation
-* generated/lockfile/snapshot/minified file handling
+* ``human_loc_changed`` calculation (§10.4 exclusions)
+* generated/lockfile/dependency/snapshot/minified file handling
 * baseline PASS/WARN/FAIL
 * JSON report schema
 * CLI entrypoint for local fixture use
@@ -601,29 +601,73 @@ fail:
 
 Important: use `human_loc_changed`, not raw LOC changed, for size severity.
 
-## 10.4 Human-authored LOC
+## 10.4 Post-exclusion LOC (`human_loc_changed`)
 
-Raw LOC can be misleading because lockfiles, generated files, snapshots, vendored files, and minified assets can dominate a diff.
+Raw LOC can be misleading because lockfiles, generated files, snapshots,
+vendored trees, and minified assets can dominate a diff. The JSON field is
+still named ``human_loc_changed`` for stable thresholds and parsers; it
+means **lines remaining after the categorizer exclusions below** (and
+after any dependency-automation override per §10.4.1), not “typed by the
+PR author.”
 
-Compute:
+Compute (baseline before §10.4.1):
 
 ```text
 raw_loc_changed = additions + deletions
-excluded_loc_changed = generated + lockfile + vendored + minified + snapshot LOC
+excluded_loc_changed = lockfile + generated + vendored + minified + snapshot LOC
 human_loc_changed = raw_loc_changed - excluded_loc_changed
 ```
 
-Still report raw LOC, but base size severity primarily on human-authored LOC.
+Still report raw LOC, but base size severity primarily on
+``human_loc_changed`` (post-exclusion LOC), not on raw totals.
 
 Example:
 
 ```text
 Raw LOC: 4,200
-Human-authored LOC: 350
+human_loc_changed: 350
 Excluded: package-lock.json, snapshots
 ```
 
 This should not automatically FAIL on size.
+
+### 10.4.1 Dependency automation authors
+
+When ``EngineInput.pr.author`` matches a small shipped allow-list (for
+example ``dependabot[bot]``, ``renovate[bot]``, ``renovate-bot``) **and**
+every changed file carries at least one of ``dependency`` or ``lockfile``
+in its ``categories`` list while **no** file carries ``source``, the
+engine replaces the §10.4 baseline with ``human_loc_changed = 0`` and
+``excluded_loc_changed = raw_loc_changed`` so §10.3 size warnings do not
+treat manifest churn as a large human diff.
+
+The §10.2 ``stats`` map includes boolean ``dependency_automation_manifest_only``
+when the override above applied. Mixed PRs (same author but ``source``
+files present) keep the baseline §10.4 numbers. Author classification
+(§10.4.2) is always emitted alongside this logic.
+
+### 10.4.2 PR author login classification
+
+The engine adds ``stats["pr_author_kind"]`` using only GitHub
+``user.login`` string matching (no branch-name heuristics, no code
+analysis). Values are a closed set:
+
+* ``human`` — default when the login is empty or not matched below.
+* ``dependency_automation`` — Dependabot / Renovate identities from the
+  shipped allow-list (case-insensitive match).
+* ``coding_agent_automation`` — known coding-agent or AI-integration App
+  identities that open PRs (Copilot, Cursor, Codex connector, Claude App,
+  Devin integration, …; case-insensitive match; extend via issues when new
+  stable logins are confirmed).
+* ``generic_automation`` — any other login ending in ``[bot]`` not in the
+  two allow-lists (for example ``github-actions[bot]``).
+
+When non-empty, ``stats["pr_author_login"]`` repeats the trimmed opener
+login for convenience.
+
+This answers “who opened the PR on GitHub?” It does **not** assert how
+lines were written; §8 language rules for LLM copy still forbid accusing
+authors of using AI or labelling code as AI-generated.
 
 ## 10.5 File categories
 
@@ -725,7 +769,8 @@ snapshot_paths:
   - "**/*.snap"
 ```
 
-These files count toward raw size and review burden, but should be separated from human-authored logic.
+These files count toward raw size and review burden, but should be
+separated from the post-exclusion ``human_loc_changed`` total per §10.4.
 
 ## 10.9 Test path patterns
 
@@ -805,7 +850,7 @@ Do not overclaim semantic scope drift until linked issue and PR body comparison 
 {
   "code": "large_human_diff",
   "severity": "medium",
-  "message": "This PR changes 1,200 human-authored lines, above the warning threshold of 800.",
+  "message": "This PR changes 1,200 lines after §10.4 exclusions (human_loc_changed), above the warning threshold of 800.",
   "evidence": {
     "human_loc_changed": 1200,
     "threshold": 800
@@ -1768,8 +1813,8 @@ This PR may be difficult to review because it changes 42 files, touches risky pa
 
 ### Issues found
 
-1. **Large human-authored diff**
-   - Evidence: 1,200 human-authored LOC changed across 42 files.
+1. **Large post-exclusion diff**
+   - Evidence: 1,200 ``human_loc_changed`` across 42 files.
    - Suggested fix: Split unrelated areas into smaller PRs.
 
 2. **Risky paths touched without enough rationale**
@@ -2431,7 +2476,7 @@ It asks whether a PR is ready for human review.
 A beta repo opened a PR with:
 - 58 files changed
 - 2,400 raw LOC
-- 1,700 human-authored LOC
+- 1,700 ``human_loc_changed`` (post-exclusion LOC)
 - migrations and GitHub workflows touched
 - no linked issue
 - no acceptance criteria

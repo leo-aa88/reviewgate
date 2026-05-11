@@ -287,9 +287,10 @@ deterministic warning by code (e.g. `too_large_human_loc`,
      `auth`, `payments`) or the file path so the bot finds the
      justification.
    * **`too_many_files_changed` / `too_large_human_loc`** -- split
-     the PR. Generated, lockfile, snapshot, minified, and vendored
-     files do not count toward `human_loc_changed`, so a large
-     dependency bump usually does not trigger this.
+     the PR. Lockfiles, generated paths, snapshots, minified assets, and
+     vendored trees do not count toward baseline `human_loc_changed`
+     (§10.4). Known dependency bots receive the §10.4.1 manifest-only
+     adjustment so manifest churn does not trip size thresholds.
 3. Push another commit (or edit the PR body). ReviewGate reruns
    automatically and updates the existing §13 comment in place
    (the marker keeps the upsert stable).

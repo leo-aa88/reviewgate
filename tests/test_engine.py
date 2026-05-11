@@ -54,11 +54,12 @@ def _pr(
     deletions: int,
     changed_files: int,
     body: str = _SUBSTANTIVE_BODY,
+    author: str = _AUTHOR,
 ) -> PRRecord:
     return PRRecord(
         title="t",
         body=body,
-        author=_AUTHOR,
+        author=author,
         base_branch="main",
         head_branch="feat",
         additions=additions,
@@ -94,10 +95,36 @@ def test_analyze_small_pr_reports_pass_with_zero_warnings() -> None:
     assert report.stats["files_changed"] == 1
     assert report.stats["raw_loc_changed"] == 12
     assert report.stats["human_loc_changed"] == 12
+    assert report.stats["pr_author_kind"] == "human"
+    assert report.stats["pr_author_login"] == _AUTHOR
+
+
+def test_analyze_copilot_author_sets_coding_agent_kind() -> None:
+    """§10.4.2: Copilot opener login maps to ``coding_agent_automation``."""
+
+    engine_input = EngineInput(
+        pr=_pr(author="Copilot", additions=5, deletions=0, changed_files=1),
+        files=[_file("src/a.py", changes=5)],
+    )
+    report = analyze(engine_input)
+    assert report.stats["pr_author_kind"] == "coding_agent_automation"
+    assert report.stats["pr_author_login"] == "Copilot"
+
+
+def test_analyze_github_actions_bot_is_generic_automation() -> None:
+    """§10.4.2: unknown ``[bot]`` logins map to ``generic_automation``."""
+
+    engine_input = EngineInput(
+        pr=_pr(author="github-actions[bot]", additions=1, deletions=0, changed_files=1),
+        files=[_file("README.md", changes=1)],
+    )
+    report = analyze(engine_input)
+    assert report.stats["pr_author_kind"] == "generic_automation"
+    assert report.stats["pr_author_login"] == "github-actions[bot]"
 
 
 def test_analyze_huge_human_loc_pr_emits_high_severity_warning() -> None:
-    """A PR with 5000 human-authored LOC fires the FAIL-tier human-LOC warning.
+    """A PR with 5000 post-exclusion ``human_loc_changed`` fires the FAIL-tier warning.
 
     Baseline reviewability is ``WARN`` (\u00a710.13 returns WARN for a single
     ``high`` warning; the policy-based ``fail_on_huge_pr`` escalation
@@ -145,6 +172,48 @@ def test_analyze_lockfile_dominated_pr_does_not_fail_on_size() -> None:
     assert report.stats["raw_loc_changed"] == 4201
     assert report.stats["excluded_loc_changed"] == 3850
     assert report.stats["human_loc_changed"] == 351
+
+
+def test_analyze_dependabot_manifest_only_zeros_human_loc_and_sets_stats_flags() -> None:
+    """§10.4.1: Dependabot manifest-only bumps do not inflate ``human_loc_changed``."""
+
+    engine_input = EngineInput(
+        pr=_pr(
+            author="dependabot[bot]",
+            additions=2,
+            deletions=0,
+            changed_files=1,
+        ),
+        files=[_file("requirements.txt", changes=2)],
+    )
+    report = analyze(engine_input)
+    assert report.stats["human_loc_changed"] == 0
+    assert report.stats["excluded_loc_changed"] == 2
+    assert report.stats["dependency_automation_manifest_only"] is True
+    assert report.stats["pr_author_kind"] == "dependency_automation"
+    assert report.stats["pr_author_login"] == "dependabot[bot]"
+
+
+def test_analyze_dependabot_with_source_skips_manifest_override() -> None:
+    """§10.4.1: mixed dependency + source PRs keep baseline ``human_loc_changed``."""
+
+    engine_input = EngineInput(
+        pr=_pr(
+            author="dependabot[bot]",
+            additions=52,
+            deletions=0,
+            changed_files=2,
+        ),
+        files=[
+            _file("requirements.txt", changes=2),
+            _file("src/x.py", changes=50),
+        ],
+    )
+    report = analyze(engine_input)
+    assert report.stats["human_loc_changed"] == 52
+    assert "dependency_automation_manifest_only" not in report.stats
+    assert report.stats["pr_author_kind"] == "dependency_automation"
+    assert report.stats["pr_author_login"] == "dependabot[bot]"
 
 
 def test_analyze_many_files_pr_emits_medium_severity_warning() -> None:

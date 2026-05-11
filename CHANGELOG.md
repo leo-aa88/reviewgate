@@ -10,6 +10,20 @@ should be considered stable but subject to additive change.
 
 ## [Unreleased]
 
+### Changed
+
+- **§10.4.1 / §10.4.2 PR opener metadata:** §10.2 ``stats`` always includes
+  ``pr_author_kind`` (``human`` | ``dependency_automation`` |
+  ``coding_agent_automation`` | ``generic_automation``) and
+  ``pr_author_login`` when non-empty, classifying GitHub ``user.login``
+  only—dependency bots (Dependabot / Renovate), coding-agent integration
+  accounts (shipped allow-list: Copilot, Cursor, Codex connector, Claude
+  App, Devin integration, …), other ``[bot]`` identities, or human
+  collaborators (`docs/DESIGN.md` §10.4.2). Known dependency bots still get
+  the §10.4.1 manifest-only ``human_loc_changed`` clamp when the diff has
+  no ``source`` files. Action summaries print the author class and keep the
+  §10.4 ``human_loc_changed`` label.
+
 ### Added
 
 - **OSS polish (issue #126):** [`GOVERNANCE.md`](GOVERNANCE.md); canonical

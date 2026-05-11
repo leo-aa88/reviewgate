@@ -227,25 +227,18 @@ def _read_engine_input(path: Path) -> EngineInput:
     try:
         raw = path.read_text(encoding="utf-8")
     except FileNotFoundError as exc:
-        raise RuntimeError(
-            f"engine input file not found: {path}"
-        ) from exc
+        raise RuntimeError(f"engine input file not found: {path}") from exc
     except OSError as exc:
-        raise RuntimeError(
-            f"could not read engine input file {path}: {exc}"
-        ) from exc
+        raise RuntimeError(f"could not read engine input file {path}: {exc}") from exc
 
     try:
         payload = json.loads(raw)
     except json.JSONDecodeError as exc:
-        raise RuntimeError(
-            f"engine input at {path} is not valid JSON: {exc}"
-        ) from exc
+        raise RuntimeError(f"engine input at {path} is not valid JSON: {exc}") from exc
 
     if not isinstance(payload, dict):
         raise RuntimeError(
-            f"engine input at {path} must be a JSON object; got "
-            f"{type(payload).__name__}"
+            f"engine input at {path} must be a JSON object; got {type(payload).__name__}"
         )
 
     return _validated_engine_input(payload)
@@ -255,9 +248,7 @@ def _validated_engine_input(payload: dict[str, Any]) -> EngineInput:
     try:
         return EngineInput.model_validate(payload)
     except ValidationError as exc:
-        raise RuntimeError(
-            f"engine input does not match §10.1 EngineInput schema:\n{exc}"
-        ) from exc
+        raise RuntimeError(f"engine input does not match §10.1 EngineInput schema:\n{exc}") from exc
 
 
 def _merge_loaded_config(
@@ -298,9 +289,7 @@ def _prepend_config_warnings(
 
     if not warnings:
         return report
-    return report.model_copy(
-        update={"warnings": list(warnings) + list(report.warnings)}
-    )
+    return report.model_copy(update={"warnings": list(warnings) + list(report.warnings)})
 
 
 # --- summary rendering ----------------------------------------------
@@ -310,6 +299,19 @@ _VERDICT_GLYPH: Final[dict[Reviewability, str]] = {
     "PASS": "[PASS]",
     "WARN": "[WARN]",
     "FAIL": "[FAIL]",
+}
+
+# Markdown bullet label for ``stats["human_loc_changed"]`` (DESIGN §10.4).
+# Wording avoids implying every line was typed by a PR author; the JSON
+# key remains ``human_loc_changed`` for downstream parsers.
+_SUMMARY_STAT_LABEL_HUMAN_LOC: Final[str] = "LOC after §10.4 exclusions (`human_loc_changed`)"
+
+# Short blurbs for ``stats["pr_author_kind"]`` (DESIGN §10.4.2); keys match engine output.
+_SUMMARY_PR_AUTHOR_KIND_LABEL: Final[dict[str, str]] = {
+    "human": "human collaborator account",
+    "dependency_automation": "dependency automation (Dependabot / Renovate)",
+    "coding_agent_automation": "coding-agent integration account",
+    "generic_automation": "other GitHub App / bot account (`[bot]` suffix)",
 }
 
 
@@ -325,6 +327,11 @@ def render_summary(report: ReviewabilityReport) -> str:
 
     Kept in its own helper so tests can assert against the exact
     rendering without re-running the whole pipeline.
+
+    Note:
+        The stats bullet uses :data:`_SUMMARY_STAT_LABEL_HUMAN_LOC` so the
+        workflow log matches DESIGN §10.4 semantics while stdout JSON
+        keeps the stable ``human_loc_changed`` field name.
     """
 
     lines: list[str] = []
@@ -336,21 +343,37 @@ def render_summary(report: ReviewabilityReport) -> str:
     files_changed = stats.get("files_changed")
     raw_loc = stats.get("raw_loc_changed")
     human_loc = stats.get("human_loc_changed")
-    if any(v is not None for v in (files_changed, raw_loc, human_loc)):
+    author_kind = stats.get("pr_author_kind")
+    show_numeric_stats = any(v is not None for v in (files_changed, raw_loc, human_loc))
+    show_author_stats = isinstance(author_kind, str)
+    if show_numeric_stats or show_author_stats:
         lines.append("**Stats**")
         lines.append("")
-        lines.append(f"- Files changed: `{files_changed}`")
-        lines.append(f"- Raw LOC changed: `{raw_loc}`")
-        lines.append(f"- Human-authored LOC: `{human_loc}`")
+        if show_numeric_stats:
+            lines.append(f"- Files changed: `{files_changed}`")
+            lines.append(f"- Raw LOC changed: `{raw_loc}`")
+            lines.append(f"- {_SUMMARY_STAT_LABEL_HUMAN_LOC}: `{human_loc}`")
+        if show_author_stats:
+            blurb = _SUMMARY_PR_AUTHOR_KIND_LABEL.get(author_kind, author_kind)
+            login = stats.get("pr_author_login")
+            login_suffix = (
+                f" — login `{login}`" if isinstance(login, str) and login.strip() else ""
+            )
+            lines.append(
+                f"- PR author class: `{author_kind}` ({blurb}){login_suffix} (§10.4.2)."
+            )
+        if stats.get("dependency_automation_manifest_only") is True:
+            lines.append(
+                "- Manifest-only dependency automation: "
+                "``human_loc_changed`` clamped to ``0`` for §10.3 thresholds."
+            )
         lines.append("")
 
     if report.warnings:
         lines.append(f"**Warnings ({len(report.warnings)})**")
         lines.append("")
         for warning in report.warnings:
-            lines.append(
-                f"- `{warning.severity}` `{warning.code}` -- {warning.message}"
-            )
+            lines.append(f"- `{warning.severity}` `{warning.code}` -- {warning.message}")
         lines.append("")
     else:
         lines.append("No deterministic warnings fired.")
@@ -363,10 +386,7 @@ def render_summary(report: ReviewabilityReport) -> str:
 
     if report.file_categories:
         risky = sum(1 for row in report.file_categories if row.risky)
-        lines.append(
-            f"**File categories:** {len(report.file_categories)} files "
-            f"({risky} risky)"
-        )
+        lines.append(f"**File categories:** {len(report.file_categories)} files ({risky} risky)")
         lines.append("")
 
     return "\n".join(lines).rstrip() + "\n"
@@ -386,9 +406,7 @@ def _emit_summary(report: ReviewabilityReport) -> None:
             # Failing to write the summary is non-fatal: the workflow
             # log already has the same content. Surface a single line
             # so an operator can debug it without breaking the run.
-            sys.stderr.write(
-                f"{_PROG}: could not write GITHUB_STEP_SUMMARY: {exc}\n"
-            )
+            sys.stderr.write(f"{_PROG}: could not write GITHUB_STEP_SUMMARY: {exc}\n")
 
 
 # --- fail-on ---------------------------------------------------------
@@ -407,9 +425,7 @@ def exit_code_for_fail_on(fail_on: str, verdict: Reviewability) -> int:
     if fail_on == "never":
         return _EXIT_OK
     if fail_on not in _VERDICT_RANK:
-        raise RuntimeError(
-            f"fail-on must be one of {_FAIL_ON_VALUES}; got {fail_on!r}"
-        )
+        raise RuntimeError(f"fail-on must be one of {_FAIL_ON_VALUES}; got {fail_on!r}")
     threshold = _VERDICT_RANK[fail_on]  # type: ignore[index]
     return _EXIT_FAIL_ON if _VERDICT_RANK[verdict] >= threshold else _EXIT_OK
 
@@ -434,12 +450,10 @@ def main(argv: list[str] | None = None) -> int:
     try:
         engine_input = _read_engine_input(Path(args.input))
         payload = engine_input.model_dump(mode="json")
-        payload, config_warnings, resolved_path, config_mode = (
-            _merge_loaded_config(
-                payload,
-                workspace=args.workspace,
-                config_file=args.config_file,
-            )
+        payload, config_warnings, resolved_path, config_mode = _merge_loaded_config(
+            payload,
+            workspace=args.workspace,
+            config_file=args.config_file,
         )
         engine_input = _validated_engine_input(payload)
     except RuntimeError as exc:
@@ -450,9 +464,7 @@ def main(argv: list[str] | None = None) -> int:
     report = _prepend_config_warnings(report, config_warnings)
 
     if args.config_file != _DEFAULT_CONFIG_FILENAME or resolved_path.exists():
-        sys.stderr.write(
-            f"{_PROG}: loaded config from {resolved_path}\n"
-        )
+        sys.stderr.write(f"{_PROG}: loaded config from {resolved_path}\n")
 
     decision = coexistence.decide(
         action_mode=args.mode,

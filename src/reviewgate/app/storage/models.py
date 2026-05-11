@@ -171,7 +171,8 @@ class Analysis(Base):
             ``reviewgate/reviewability``).
         files_changed: Count of changed files from GitHub, if known.
         raw_loc_changed: Raw lines added plus deleted across files.
-        human_loc_changed: Human-authored LOC after exclusions.
+        human_loc_changed: Lines remaining after §10.4 exclusions (same
+            meaning as ``ReviewabilityReport.stats["human_loc_changed"]``).
         created_at: Row creation timestamp (UTC).
         completed_at: Worker completion timestamp, if finished.
         error_code: Short machine-readable error when status is failed.

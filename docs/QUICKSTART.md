@@ -263,7 +263,7 @@ warning by code. Common ones:
 | `weak_pr_body` | Add at least a sentence (the §10.10 threshold is 80 meaningful characters after stripping template scaffolding) describing *why* the change exists. |
 | `missing_linked_issue` | Link the tracker (`Closes #123`, `GH-123`, `ABC-123`, or a Jira / Linear / GitHub issue URL). |
 | `risky_paths_without_rationale` | Add a paragraph in the body referencing the risky category (e.g. `migrations`, `auth`, `payments`) or the file path so the bot finds the justification. |
-| `too_many_files_changed` / `too_large_human_loc` | Split the PR. Generated, lockfile, snapshot, minified, and vendored files **do not count** toward `human_loc_changed`, so a large dependency bump usually does not trigger this. |
+| `too_many_files_changed` / `too_large_human_loc` | Split the PR. Lockfiles, generated paths, snapshots, minified assets, and vendored trees **do not count** toward baseline `human_loc_changed` (§10.4). Known dependency bots (Dependabot / Renovate; §10.4.1) additionally get manifest-only handling so dependency bumps do not trip size thresholds. |
 | `mixed_concerns` | The category cluster looks unrelated (§10.11). Split or update the description to explain why these areas are touched together. |
 
 Push another commit (or edit the PR body). The Action reruns

@@ -117,9 +117,7 @@ CASES: Final[tuple[GoldenCase, ...]] = (
         targeted_heuristics=("§10.4 lockfile exclusion", "no size warning"),
         expected_reviewability="PASS",
         expected_warning_codes=frozenset(),
-        forbidden_warning_codes=frozenset(
-            {"too_large_human_loc", "too_many_files_changed"}
-        ),
+        forbidden_warning_codes=frozenset({"too_large_human_loc", "too_many_files_changed"}),
         expected_label_subset=frozenset({"reviewability-pass"}),
         expected_min_files_changed=2,
     ),
@@ -130,9 +128,7 @@ CASES: Final[tuple[GoldenCase, ...]] = (
         targeted_heuristics=("§10.8 generated exclusion", "no size warning"),
         expected_reviewability="PASS",
         expected_warning_codes=frozenset(),
-        forbidden_warning_codes=frozenset(
-            {"too_large_human_loc", "too_many_files_changed"}
-        ),
+        forbidden_warning_codes=frozenset({"too_large_human_loc", "too_many_files_changed"}),
         expected_label_subset=frozenset({"reviewability-pass"}),
         expected_min_files_changed=2,
     ),
@@ -143,9 +139,7 @@ CASES: Final[tuple[GoldenCase, ...]] = (
         targeted_heuristics=("§10.8 snapshot exclusion", "no size warning"),
         expected_reviewability="PASS",
         expected_warning_codes=frozenset(),
-        forbidden_warning_codes=frozenset(
-            {"too_large_human_loc", "too_many_files_changed"}
-        ),
+        forbidden_warning_codes=frozenset({"too_large_human_loc", "too_many_files_changed"}),
         expected_label_subset=frozenset({"reviewability-pass"}),
         expected_min_files_changed=2,
     ),
@@ -201,7 +195,7 @@ CASES: Final[tuple[GoldenCase, ...]] = (
         fixture_filename="08_dependency_update_only.json",
         targeted_heuristics=(
             "§10.7 dependency + lockfile categorization",
-            "§10.4 lockfile exclusion",
+            "§10.4.1 dependency automation manifest-only override",
         ),
         expected_reviewability="PASS",
         expected_warning_codes=frozenset({"many_dependency_files"}),
@@ -295,12 +289,8 @@ CASES: Final[tuple[GoldenCase, ...]] = (
             "§10.13 FAIL aggregation on high-severity warnings",
         ),
         expected_reviewability="FAIL",
-        expected_warning_codes=frozenset(
-            {"too_many_files_changed", "too_large_human_loc"}
-        ),
-        forbidden_warning_codes=frozenset(
-            {"weak_pr_body", "missing_linked_issue"}
-        ),
+        expected_warning_codes=frozenset({"too_many_files_changed", "too_large_human_loc"}),
+        forbidden_warning_codes=frozenset({"weak_pr_body", "missing_linked_issue"}),
         expected_label_subset=frozenset({"reviewability-fail", "too-large"}),
         expected_min_files_changed=70,
     ),

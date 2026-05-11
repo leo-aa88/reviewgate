@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING, Final, Literal, NamedTuple
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
-from reviewgate.app.storage.models import Analysis
+from reviewgate.app.storage.models import Analysis, AnalysisReport
 
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session
@@ -213,6 +213,51 @@ def mark_analysis_failed(
     row.error_code = error_code.strip()
     row.completed_at = datetime.now(tz=UTC)
     row.reviewability = None
+
+
+def update_analysis_pr_size_fields(
+    session: "Session",
+    analysis_id: uuid.UUID,
+    *,
+    files_changed: int,
+    raw_loc_changed: int,
+    human_loc_changed: int,
+) -> None:
+    """Populate ``analyses`` size columns from deterministic stats (§16.1)."""
+
+    row = session.get(Analysis, analysis_id)
+    if row is None:
+        msg = f"analysis id not found: {analysis_id}"
+        raise ValueError(msg)
+    if files_changed < 0 or raw_loc_changed < 0 or human_loc_changed < 0:
+        msg = "size fields must be non-negative"
+        raise ValueError(msg)
+    row.files_changed = files_changed
+    row.raw_loc_changed = raw_loc_changed
+    row.human_loc_changed = human_loc_changed
+
+
+def insert_analysis_report(
+    session: "Session",
+    analysis_id: uuid.UUID,
+    *,
+    report_json: dict[str, object],
+    deterministic_json: dict[str, object],
+) -> uuid.UUID:
+    """Insert a deterministic ``analysis_reports`` row (issue #50)."""
+
+    report_id = uuid.uuid4()
+    session.add(
+        AnalysisReport(
+            id=report_id,
+            analysis_id=analysis_id,
+            report_json=report_json,
+            deterministic_json=deterministic_json,
+            llm_used=False,
+            created_at=datetime.now(tz=UTC),
+        ),
+    )
+    return report_id
 
 
 def completed_analysis_exists_for_key(

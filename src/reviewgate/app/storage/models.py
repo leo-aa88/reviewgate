@@ -28,6 +28,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    JSON,
     Numeric,
     Text,
     UniqueConstraint,
@@ -243,9 +244,9 @@ class AnalysisReport(Base):
         ForeignKey(f"{TABLE_ANALYSES}.id"),
         nullable=False,
     )
-    report_json: Mapped[dict[str, object]] = mapped_column(JSONB, nullable=False)
+    report_json: Mapped[dict[str, object]] = mapped_column(JSON, nullable=False)
     deterministic_json: Mapped[dict[str, object]] = mapped_column(
-        JSONB,
+        JSON,
         nullable=False,
     )
     llm_used: Mapped[bool] = mapped_column(

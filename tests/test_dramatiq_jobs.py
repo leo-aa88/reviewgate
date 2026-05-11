@@ -16,6 +16,31 @@ pytest.importorskip("dramatiq")
 _REPO_ROOT: Final[Path] = Path(__file__).resolve().parent.parent
 
 
+def _minimal_pass_reviewability_report() -> object:
+    """Deterministic PASS report for worker tests without calling GitHub."""
+
+    from reviewgate.core.config import ReviewGateConfig
+    from reviewgate.core.report import suggested_labels
+    from reviewgate.core.schemas import ReviewabilityReport
+
+    return ReviewabilityReport(
+        reviewability="PASS",
+        stats={
+            "raw_loc_changed": 1,
+            "excluded_loc_changed": 0,
+            "human_loc_changed": 1,
+            "files_changed": 1,
+            "additions": 1,
+            "deletions": 0,
+        },
+        warnings=[],
+        suggested_labels=suggested_labels("PASS", [], ReviewGateConfig().labels),
+        file_categories=[],
+        split_hints=[],
+        reviewer_checklist=[],
+    )
+
+
 def test_run_pr_analysis_stub_invokes_with_stub_broker() -> None:
     """Actors register against a :class:`~dramatiq.brokers.stub.StubBroker`."""
 
@@ -41,7 +66,12 @@ def test_run_pr_analysis_stub_marks_analysis_completed_with_natural_key(
     from sqlalchemy import create_engine, select
     from sqlalchemy.orm import sessionmaker
 
-    from reviewgate.app.storage.models import Analysis, Installation, Repository
+    from reviewgate.app.storage.models import (
+        Analysis,
+        AnalysisReport,
+        Installation,
+        Repository,
+    )
 
     dramatiq.set_broker(StubBroker())
 
@@ -52,6 +82,7 @@ def test_run_pr_analysis_stub_marks_analysis_completed_with_natural_key(
         Installation.__table__.to_metadata(md)
         Repository.__table__.to_metadata(md)
         Analysis.__table__.to_metadata(md)
+        AnalysisReport.__table__.to_metadata(md)
         return md
 
     engine = create_engine("sqlite+pysqlite:///:memory:", future=True)
@@ -97,6 +128,11 @@ def test_run_pr_analysis_stub_marks_analysis_completed_with_natural_key(
         "check_analysis_rate_limits",
         lambda *_a, **_k: "ok",
     )
+    monkeypatch.setattr(
+        jobs_mod,
+        "run_pr_analysis_for_natural_key",
+        lambda *_a, **_k: _minimal_pass_reviewability_report(),
+    )
 
     from reviewgate.app.analysis.jobs import run_pr_analysis_stub
 
@@ -118,6 +154,9 @@ def test_run_pr_analysis_stub_marks_analysis_completed_with_natural_key(
         ).scalar_one()
         assert row.status == "completed"
         assert row.reviewability == "PASS"
+        reports = verify.execute(select(AnalysisReport)).scalars().all()
+        assert len(reports) == 1
+        assert reports[0].llm_used is False
 
 
 def test_run_pr_analysis_stub_cache_hit_skips_db_writes(

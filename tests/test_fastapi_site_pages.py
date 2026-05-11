@@ -23,6 +23,7 @@ def test_landing_includes_positioning_and_privacy_link() -> None:
         "unclear, risky, or mixed-scope pull requests before they reach human reviewers."
     ) in text
     assert 'href="/privacy"' in text
+    assert 'href="/feedback"' in text
 
 
 def test_landing_shows_install_link_when_url_configured(
@@ -50,3 +51,16 @@ def test_installation_success_links_onboarding_doc() -> None:
         "https://github.com/leo-aa88/reviewgate/blob/main/docs/ONBOARDING.md"
         in response.text
     )
+    assert 'href="/feedback"' in response.text
+
+
+def test_feedback_page_posts_to_beta_feedback_api() -> None:
+    """``GET /feedback`` serves a form wired to ``POST /api/beta-feedback``."""
+
+    client = TestClient(create_app())
+    response = client.get("/feedback")
+    assert response.status_code == 200
+    assert "text/html" in response.headers.get("content-type", "")
+    text = response.text
+    assert "/api/beta-feedback" in text
+    assert 'name="message"' in text

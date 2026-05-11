@@ -25,7 +25,7 @@ from reviewgate.app.storage.models import Base
 
 _REPO_ROOT: Final[Path] = Path(__file__).resolve().parent.parent
 _ALEMBIC_INI: Final[Path] = _REPO_ROOT / "alembic.ini"
-_EXPECTED_ALEMBIC_HEAD: Final[str] = "16_1_0001"
+_EXPECTED_ALEMBIC_HEAD: Final[str] = "16_1_0002"
 
 _EXPECTED_TABLES: Final[frozenset[str]] = frozenset(
     {
@@ -34,6 +34,7 @@ _EXPECTED_TABLES: Final[frozenset[str]] = frozenset(
         models.TABLE_ANALYSES,
         models.TABLE_ANALYSIS_REPORTS,
         models.TABLE_BETA_LEADS,
+        models.TABLE_BETA_FEEDBACK,
         models.TABLE_WEBHOOK_DELIVERIES,
     },
 )
@@ -96,12 +97,12 @@ def test_installation_and_repository_numeric_ids_unique() -> None:
 
 
 def test_alembic_head_revision_is_registered() -> None:
-    """The initial migration revision is registered in the Alembic script graph."""
+    """The latest migration revision is the sole Alembic head."""
 
     assert _ALEMBIC_INI.is_file(), f"missing Alembic config: {_ALEMBIC_INI}"
     cfg = Config(str(_ALEMBIC_INI))
     script = ScriptDirectory.from_config(cfg)
     heads = script.get_heads()
-    assert _EXPECTED_ALEMBIC_HEAD in heads, (
-        f"expected Alembic head {_EXPECTED_ALEMBIC_HEAD!r} in {heads!r}"
+    assert heads == [_EXPECTED_ALEMBIC_HEAD], (
+        f"expected single Alembic head {_EXPECTED_ALEMBIC_HEAD!r}, got {heads!r}"
     )

@@ -26,6 +26,7 @@ Example:
 
 from __future__ import annotations
 
+import logging
 from contextlib import nullcontext
 from typing import Final
 
@@ -62,6 +63,8 @@ from reviewgate.core.config import ReviewGateConfig
 from reviewgate.core.schemas import ReviewabilityReport
 from reviewgate.app.storage.webhook_purge import purge_webhook_deliveries_older_than
 from reviewgate.app.webhooks.enqueue_policy import installation_repository_may_enqueue_jobs
+
+logger = logging.getLogger(__name__)
 
 _MAX_RETRIES: Final[int] = 5
 _MIN_BACKOFF_MS: Final[int] = 30_000
@@ -271,15 +274,18 @@ def run_pr_analysis_stub(payload: dict[str, object]) -> None:
 
     if publish_work is not None:
         pub_ctx, pub_key, pub_report, pub_cfg = publish_work
-        with httpx.Client(timeout=30.0) as http_client:
-            publish_hosted_pr_github_feedback(
-                settings,
-                ctx=pub_ctx,
-                key=pub_key,
-                report=pub_report,
-                config=pub_cfg,
-                http_client=http_client,
-            )
+        try:
+            with httpx.Client(timeout=30.0) as http_client:
+                publish_hosted_pr_github_feedback(
+                    settings,
+                    ctx=pub_ctx,
+                    key=pub_key,
+                    report=pub_report,
+                    config=pub_cfg,
+                    http_client=http_client,
+                )
+        except Exception:
+            logger.exception("publish_hosted_pr_github_feedback_unexpected_failure")
 
     del payload
 

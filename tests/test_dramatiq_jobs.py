@@ -172,6 +172,116 @@ def test_run_pr_analysis_stub_marks_analysis_completed_with_natural_key(
         assert reports[0].llm_used is False
 
 
+def test_run_pr_analysis_stub_completes_when_post_commit_publish_raises(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Issue #54: post-commit GitHub publish errors must not fail the actor."""
+
+    import uuid
+    from datetime import UTC, datetime
+
+    import dramatiq
+    from dramatiq.brokers.stub import StubBroker
+    from sqlalchemy import create_engine, select
+    from sqlalchemy.orm import sessionmaker
+
+    from reviewgate.app.storage.models import (
+        Analysis,
+        AnalysisReport,
+        Installation,
+        Repository,
+    )
+
+    dramatiq.set_broker(StubBroker())
+
+    def _subset_metadata() -> object:
+        from sqlalchemy import MetaData
+
+        md = MetaData()
+        Installation.__table__.to_metadata(md)
+        Repository.__table__.to_metadata(md)
+        Analysis.__table__.to_metadata(md)
+        AnalysisReport.__table__.to_metadata(md)
+        return md
+
+    engine = create_engine("sqlite+pysqlite:///:memory:", future=True)
+    _subset_metadata().create_all(engine)
+    factory = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
+
+    inst_id = uuid.uuid4()
+    repo_uuid = uuid.uuid4()
+    now = datetime.now(tz=UTC)
+    with factory() as setup_session:
+        setup_session.add(
+            Installation(
+                id=inst_id,
+                github_installation_id=9101,
+                account_login="acme",
+                account_type="Organization",
+                created_at=now,
+            ),
+        )
+        setup_session.add(
+            Repository(
+                id=repo_uuid,
+                installation_id=inst_id,
+                github_repository_id=4141,
+                owner="acme",
+                name="demo",
+                full_name="acme/demo",
+                private=False,
+                active=True,
+                created_at=now,
+            ),
+        )
+        setup_session.commit()
+
+    import reviewgate.app.analysis.jobs as jobs_mod
+
+    monkeypatch.setattr(jobs_mod, "create_engine_from_settings", lambda _s: engine)
+    monkeypatch.setattr(jobs_mod, "create_session_factory", lambda _e: factory)
+    monkeypatch.setattr(jobs_mod, "get_cached_final_report", lambda *_a, **_k: None)
+    monkeypatch.setattr(jobs_mod, "set_cached_final_report", lambda *_a, **_k: None)
+    monkeypatch.setattr(
+        jobs_mod,
+        "check_analysis_rate_limits",
+        lambda *_a, **_k: "ok",
+    )
+    monkeypatch.setattr(
+        jobs_mod,
+        "run_pr_analysis_for_natural_key",
+        lambda *_a, **_k: _pipeline_success_tuple(),
+    )
+    def _publish_boom(*_a: object, **_k: object) -> None:
+        raise RuntimeError("simulated post-commit publish failure")
+
+    monkeypatch.setattr(
+        jobs_mod,
+        "publish_hosted_pr_github_feedback",
+        _publish_boom,
+    )
+
+    from reviewgate.app.analysis.jobs import run_pr_analysis_stub
+
+    run_pr_analysis_stub(
+        {
+            "github_installation_id": 9101,
+            "github_repository_id": 4141,
+            "reviewgate_repository_id": str(repo_uuid),
+            "reviewgate_pull_number": 1,
+            "reviewgate_head_sha": "sha1",
+            "reviewgate_config_hash": "ch",
+            "reviewgate_pr_metadata_hash": "mh",
+        },
+    )
+
+    with factory() as verify:
+        row = verify.execute(
+            select(Analysis).where(Analysis.repository_id == repo_uuid),
+        ).scalar_one()
+        assert row.status == "completed"
+
+
 def test_run_pr_analysis_stub_cache_hit_skips_db_writes(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

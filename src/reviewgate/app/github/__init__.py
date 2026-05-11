@@ -30,6 +30,10 @@ from reviewgate.app.github.checks import (
     create_completed_reviewability_check_run,
     reviewability_check_conclusion,
 )
+from reviewgate.app.github.coexistence import (
+    effective_hosted_status_check,
+    hosted_github_outputs_enabled,
+)
 from reviewgate.app.github.labels import (
     ensure_reviewgate_labels_exist,
     list_issue_label_names,
@@ -44,8 +48,10 @@ __all__ = [
     "REVIEWGATE_REPORT_MARKER",
     "UpsertCommentResult",
     "create_completed_reviewability_check_run",
+    "effective_hosted_status_check",
     "ensure_reviewgate_labels_exist",
     "fetch_installation_access_token",
+    "hosted_github_outputs_enabled",
     "fetch_pull_request",
     "fetch_pull_request_files",
     "fetch_repository_text_file_contents",

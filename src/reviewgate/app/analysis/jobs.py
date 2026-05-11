@@ -1,4 +1,4 @@
-"""Dramatiq actors for hosted PR analysis (``docs/DESIGN.md`` §13.7; issues #46–#50).
+"""Dramatiq actors for hosted PR analysis (``docs/DESIGN.md`` §13.7; issues #46–#54).
 
 ``docs/DESIGN.md`` §13.7 recommends Dramatiq + Redis so webhooks never block on
 analysis or LLM calls. This module defines **actors** (PR analysis plus
@@ -26,14 +26,17 @@ Example:
 
 from __future__ import annotations
 
+import logging
 from contextlib import nullcontext
 from typing import Final
 
 import dramatiq
 import httpx
 
+from reviewgate.app.analysis.hosted_github_outputs import publish_hosted_pr_github_feedback
 from reviewgate.app.analysis.pipeline import (
     AnalysisPipelineUserError,
+    HostRepoContext,
     resolve_host_repo_context,
     run_pr_analysis_for_natural_key,
 )
@@ -48,6 +51,7 @@ from reviewgate.app.rate_limit.limiter import check_analysis_rate_limits
 from reviewgate.app.settings import AppSettings
 from reviewgate.app.storage.db import create_engine_from_settings, create_session_factory
 from reviewgate.app.storage.repositories import (
+    AnalysisNaturalKey,
     begin_analysis_for_job_start,
     insert_analysis_report,
     mark_analysis_completed,
@@ -55,8 +59,12 @@ from reviewgate.app.storage.repositories import (
     parse_analysis_job_natural_key,
     update_analysis_pr_size_fields,
 )
+from reviewgate.core.config import ReviewGateConfig
+from reviewgate.core.schemas import ReviewabilityReport
 from reviewgate.app.storage.webhook_purge import purge_webhook_deliveries_older_than
 from reviewgate.app.webhooks.enqueue_policy import installation_repository_may_enqueue_jobs
+
+logger = logging.getLogger(__name__)
 
 _MAX_RETRIES: Final[int] = 5
 _MIN_BACKOFF_MS: Final[int] = 30_000
@@ -91,7 +99,9 @@ def run_pr_analysis_stub(payload: dict[str, object]) -> None:
             and completes the ``analyses`` row unless another worker holds the row
             (``already_running``) or it is ``already_completed``. Redis final-result
             cache (issue #48) and §22.2 rate limits (issue #49) apply when
-            configured.
+            configured. After a successful DB commit, §14.1 ``mode`` gates hosted
+            GitHub comments, labels, and check runs via
+            :func:`reviewgate.app.analysis.hosted_github_outputs.publish_hosted_pr_github_feedback`.
     """
 
     settings = AppSettings()
@@ -121,6 +131,10 @@ def run_pr_analysis_stub(payload: dict[str, object]) -> None:
     )
 
     session_factory = create_session_factory(engine)
+    publish_work: (
+        tuple[HostRepoContext, AnalysisNaturalKey, ReviewabilityReport, ReviewGateConfig]
+        | None
+    ) = None
     with session_factory() as session:
         if need_installation_guard:
             if not installation_repository_may_enqueue_jobs(
@@ -183,7 +197,7 @@ def run_pr_analysis_stub(payload: dict[str, object]) -> None:
                 else:
                     try:
                         with httpx.Client(timeout=30.0) as http_client:
-                            report = run_pr_analysis_for_natural_key(
+                            report, effective_config = run_pr_analysis_for_natural_key(
                                 settings,
                                 natural,
                                 ctx,
@@ -255,7 +269,23 @@ def run_pr_analysis_stub(payload: dict[str, object]) -> None:
                                     "stats": report.stats,
                                 },
                             )
+                        publish_work = (ctx, natural, report, effective_config)
             session.commit()
+
+    if publish_work is not None:
+        pub_ctx, pub_key, pub_report, pub_cfg = publish_work
+        try:
+            with httpx.Client(timeout=30.0) as http_client:
+                publish_hosted_pr_github_feedback(
+                    settings,
+                    ctx=pub_ctx,
+                    key=pub_key,
+                    report=pub_report,
+                    config=pub_cfg,
+                    http_client=http_client,
+                )
+        except Exception:
+            logger.exception("publish_hosted_pr_github_feedback_unexpected_failure")
 
     del payload
 

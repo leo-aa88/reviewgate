@@ -1,9 +1,12 @@
-"""Hosted worker analysis pipeline (``docs/DESIGN.md`` §15; issue #50).
+"""Hosted worker analysis pipeline (``docs/DESIGN.md`` §15; issues #50, #54).
 
 Normalizes GitHub pull request data, applies §22.3 file-count tiering, fetches
 effective repository config, and runs :func:`reviewgate.core.engine.analyze`.
 Patches are not passed into the deterministic engine by default (``docs/DESIGN.md``
 §11.5 / §21.2).
+
+:func:`run_pr_analysis_for_natural_key` returns ``(report, config)`` so callers
+can apply §14.1 ``mode`` when publishing GitHub feedback (issue #54).
 """
 
 from __future__ import annotations
@@ -222,7 +225,7 @@ def run_pr_analysis_for_natural_key(
     ctx: HostRepoContext,
     *,
     http_client: httpx.Client,
-) -> ReviewabilityReport:
+) -> tuple[ReviewabilityReport, ReviewGateConfig]:
     """Fetch PR data from GitHub, build :class:`~reviewgate.core.schemas.EngineInput`, run core.
 
     Args:
@@ -232,7 +235,9 @@ def run_pr_analysis_for_natural_key(
         http_client: Shared HTTP client for GitHub calls.
 
     Returns:
-        Deterministic :class:`~reviewgate.core.schemas.ReviewabilityReport`.
+        Tuple of the deterministic :class:`~reviewgate.core.schemas.ReviewabilityReport`
+        and the effective :class:`~reviewgate.core.config.ReviewGateConfig` loaded from
+        the repository (or defaults for §22.3 fail-fast before YAML is read).
 
     Raises:
         GitHubRestError: On GitHub HTTP failures (respect ``retriable``).
@@ -263,7 +268,10 @@ def run_pr_analysis_for_natural_key(
     pr_record = _pull_doc_to_pr_record(pr_doc)
     tier_cls = classify_changed_file_count(pr_record.changed_files)
     if tier_cls.tier == "fail_fast":
-        return _fail_fast_report(pr_record, tier_cls.fail_fast_message or "")
+        return (
+            _fail_fast_report(pr_record, tier_cls.fail_fast_message or ""),
+            ReviewGateConfig(),
+        )
 
     files_raw = fetch_pull_request_files(
         access.token,
@@ -310,4 +318,4 @@ def run_pr_analysis_for_natural_key(
         files=changed_files,
         config=load_result.config.model_dump(mode="json"),
     )
-    return analyze(engine_input)
+    return analyze(engine_input), load_result.config

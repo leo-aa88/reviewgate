@@ -86,3 +86,20 @@ class AppSettings(BaseSettings):
             "§5.1 landing page (issue #38)."
         ),
     )
+    github_app_bot_login: str | None = Field(
+        default=None,
+        description=(
+            "Exact GitHub ``user.login`` for the App installation bot "
+            "(for example ``my-app[bot]``). Used when upserting PR comments "
+            "(``docs/DESIGN.md`` §13.8; issue #51). Overrides "
+            "``github_app_slug``-derived login when set."
+        ),
+    )
+    github_app_slug: str | None = Field(
+        default=None,
+        description=(
+            "GitHub App ``slug`` from the App settings URL. When "
+            "``github_app_bot_login`` is unset, comment upsert resolves the bot "
+            "login as ``{slug}[bot]`` (§13.8)."
+        ),
+    )

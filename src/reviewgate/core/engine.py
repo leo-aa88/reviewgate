@@ -15,7 +15,7 @@ they land without changing the public signature.
 
 from __future__ import annotations
 
-from pydantic import ValidationError
+from pydantic import JsonValue, ValidationError
 
 from .aggregate import baseline_reviewability
 from .automation_pr import finalize_size_stats_for_pr_author
@@ -31,6 +31,31 @@ from .risky_paths import risky_paths_warning
 from .schemas import ChangedFile, EngineInput, EngineWarning, PRRecord, ReviewabilityReport
 from .size import compute_size_stats, size_warnings
 from .tests_coverage import missing_tests_for_source_warning
+
+
+def _merge_size_and_automation_stats(
+    size_dump: dict[str, JsonValue],
+    automation: dict[str, JsonValue],
+) -> dict[str, JsonValue]:
+    """Merge §10.4 :class:`SizeStats` JSON with automation extras.
+
+    Raises:
+        RuntimeError: When key sets overlap (contract drift between producers).
+
+    Returns:
+        A new dict suitable for ``ReviewabilityReport.stats``.
+    """
+
+    overlap = size_dump.keys() & automation.keys()
+    if overlap:
+        raise RuntimeError(
+            "ReviewGate internal error: SizeStats fields overlap automation stats "
+            f"(collision keys: {sorted(overlap)}). Resolve naming between "
+            "`reviewgate.core.size.SizeStats` and `reviewgate.core.automation_pr`."
+        )
+    merged: dict[str, JsonValue] = dict(size_dump)
+    merged.update(automation)
+    return merged
 
 
 def analyze(engine_input: EngineInput) -> ReviewabilityReport:
@@ -128,8 +153,10 @@ def analyze(engine_input: EngineInput) -> ReviewabilityReport:
         warnings.append(tests_warning)
 
     verdict = baseline_reviewability(warnings)
-    stats_payload = stats.model_dump()
-    stats_payload.update(automation_stats)
+    stats_payload = _merge_size_and_automation_stats(
+        stats.model_dump(mode="json"),
+        automation_stats,
+    )
     return ReviewabilityReport(
         reviewability=verdict,
         stats=stats_payload,

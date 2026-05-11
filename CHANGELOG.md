@@ -12,6 +12,11 @@ should be considered stable but subject to additive change.
 
 ### Changed
 
+- **PR follow-up (stable API + guards):** ``PrAuthorKind``, automation login
+  frozensets, and ``finalize_size_stats_for_pr_author`` are re-exported from
+  ``reviewgate.core``; ``engine.analyze`` asserts disjoint keys when merging
+  ``SizeStats`` with automation extras; Markdown stats rendering moved to
+  ``reviewgate_action.summary`` (``run_core`` under the soft LOC cap).
 - **§10.4.1 / §10.4.2 PR opener metadata:** §10.2 ``stats`` always includes
   ``pr_author_kind`` (``human`` | ``dependency_automation`` |
   ``coding_agent_automation`` | ``generic_automation``) and

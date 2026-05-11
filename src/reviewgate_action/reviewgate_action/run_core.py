@@ -14,11 +14,11 @@ Pipeline this module owns:
    input's ``config`` block (as JSON) so the engine sees the same
    effective configuration the Action loaded.
 4. Call :func:`reviewgate.core.engine.analyze`.
-5. Print a human-readable summary (verdict, warning ladder, suggested
-   labels, file-category counts) to stderr **and** to
-   ``$GITHUB_STEP_SUMMARY`` when set, plus the full §10.2 JSON
-   report to stdout. The split keeps stdout machine-parseable for
-   downstream Action steps while the human summary lights up the
+5. Print a human-readable summary via :mod:`reviewgate_action.summary`
+   (verdict, warning ladder, suggested labels, file-category counts) to
+   stderr **and** to ``$GITHUB_STEP_SUMMARY`` when set, plus the full
+   §10.2 JSON report to stdout. The split keeps stdout machine-parseable
+   for downstream Action steps while the human summary lights up the
    workflow log.
 6. Apply the §14 ``fail-on`` policy: exit 0 when the verdict is
    below the threshold, exit 1 when the verdict reaches it. The
@@ -51,7 +51,13 @@ from reviewgate.core.schemas import (
 )
 from reviewgate_action import coexistence, post_comment
 
+from .summary import PR_AUTHOR_KIND_LABELS, STAT_LABEL_HUMAN_LOC, render_summary
+
 _PROG: Final[str] = "reviewgate-action.run_core"
+
+# Backward-compatible aliases for tests that pin ``run_core`` symbols.
+_SUMMARY_STAT_LABEL_HUMAN_LOC = STAT_LABEL_HUMAN_LOC
+_SUMMARY_PR_AUTHOR_KIND_LABEL = PR_AUTHOR_KIND_LABELS
 
 _EXIT_OK: Final[int] = 0
 _EXIT_FAIL_ON: Final[int] = 1
@@ -290,106 +296,6 @@ def _prepend_config_warnings(
     if not warnings:
         return report
     return report.model_copy(update={"warnings": list(warnings) + list(report.warnings)})
-
-
-# --- summary rendering ----------------------------------------------
-
-
-_VERDICT_GLYPH: Final[dict[Reviewability, str]] = {
-    "PASS": "[PASS]",
-    "WARN": "[WARN]",
-    "FAIL": "[FAIL]",
-}
-
-# Markdown bullet label for ``stats["human_loc_changed"]`` (DESIGN §10.4).
-# Wording avoids implying every line was typed by a PR author; the JSON
-# key remains ``human_loc_changed`` for downstream parsers.
-_SUMMARY_STAT_LABEL_HUMAN_LOC: Final[str] = "LOC after §10.4 exclusions (`human_loc_changed`)"
-
-# Short blurbs for ``stats["pr_author_kind"]`` (DESIGN §10.4.2); keys match engine output.
-_SUMMARY_PR_AUTHOR_KIND_LABEL: Final[dict[str, str]] = {
-    "human": "human collaborator account",
-    "dependency_automation": "dependency automation (Dependabot / Renovate)",
-    "coding_agent_automation": "coding-agent integration account",
-    "generic_automation": "other GitHub App / bot account (`[bot]` suffix)",
-}
-
-
-def render_summary(report: ReviewabilityReport) -> str:
-    """Render a Markdown-flavoured human summary of ``report``.
-
-    The output is consumed by:
-
-    * the workflow log (we write it to stderr so stdout stays
-      reserved for the JSON document); and
-    * `$GITHUB_STEP_SUMMARY`, where Markdown renders into the
-      "Summary" panel for each job.
-
-    Kept in its own helper so tests can assert against the exact
-    rendering without re-running the whole pipeline.
-
-    Note:
-        The stats bullet uses :data:`_SUMMARY_STAT_LABEL_HUMAN_LOC` so the
-        workflow log matches DESIGN §10.4 semantics while stdout JSON
-        keeps the stable ``human_loc_changed`` field name.
-    """
-
-    lines: list[str] = []
-    glyph = _VERDICT_GLYPH[report.reviewability]
-    lines.append(f"## ReviewGate {glyph} `{report.reviewability}`")
-    lines.append("")
-
-    stats = report.stats
-    files_changed = stats.get("files_changed")
-    raw_loc = stats.get("raw_loc_changed")
-    human_loc = stats.get("human_loc_changed")
-    author_kind = stats.get("pr_author_kind")
-    show_numeric_stats = any(v is not None for v in (files_changed, raw_loc, human_loc))
-    show_author_stats = isinstance(author_kind, str)
-    if show_numeric_stats or show_author_stats:
-        lines.append("**Stats**")
-        lines.append("")
-        if show_numeric_stats:
-            lines.append(f"- Files changed: `{files_changed}`")
-            lines.append(f"- Raw LOC changed: `{raw_loc}`")
-            lines.append(f"- {_SUMMARY_STAT_LABEL_HUMAN_LOC}: `{human_loc}`")
-        if show_author_stats:
-            blurb = _SUMMARY_PR_AUTHOR_KIND_LABEL.get(author_kind, author_kind)
-            login = stats.get("pr_author_login")
-            login_suffix = (
-                f" — login `{login}`" if isinstance(login, str) and login.strip() else ""
-            )
-            lines.append(
-                f"- PR author class: `{author_kind}` ({blurb}){login_suffix} (§10.4.2)."
-            )
-        if stats.get("dependency_automation_manifest_only") is True:
-            lines.append(
-                "- Manifest-only dependency automation: "
-                "``human_loc_changed`` clamped to ``0`` for §10.3 thresholds."
-            )
-        lines.append("")
-
-    if report.warnings:
-        lines.append(f"**Warnings ({len(report.warnings)})**")
-        lines.append("")
-        for warning in report.warnings:
-            lines.append(f"- `{warning.severity}` `{warning.code}` -- {warning.message}")
-        lines.append("")
-    else:
-        lines.append("No deterministic warnings fired.")
-        lines.append("")
-
-    if report.suggested_labels:
-        joined = ", ".join(f"`{label}`" for label in report.suggested_labels)
-        lines.append(f"**Suggested labels:** {joined}")
-        lines.append("")
-
-    if report.file_categories:
-        risky = sum(1 for row in report.file_categories if row.risky)
-        lines.append(f"**File categories:** {len(report.file_categories)} files ({risky} risky)")
-        lines.append("")
-
-    return "\n".join(lines).rstrip() + "\n"
 
 
 def _emit_summary(report: ReviewabilityReport) -> None:

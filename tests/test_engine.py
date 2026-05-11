@@ -13,9 +13,12 @@ hands data between them correctly and produces a \u00a710.2-shaped report.
 
 from __future__ import annotations
 
-from typing import Final
+from typing import Final, get_args
 
-from reviewgate.core.engine import analyze
+import pytest
+
+from reviewgate.core.automation_pr import PrAuthorKind
+from reviewgate.core.engine import _merge_size_and_automation_stats, analyze
 from reviewgate.core.schemas import (
     ChangedFile,
     EngineInput,
@@ -632,3 +635,35 @@ def test_analyze_file_categories_are_in_input_order() -> None:
     report = analyze(engine_input)
 
     assert [r.filename for r in report.file_categories] == names
+
+
+def test_merge_size_and_automation_stats_raises_on_key_collision() -> None:
+    """Regression guard: overlapping producer dicts must fail before silent overwrite."""
+
+    with pytest.raises(RuntimeError, match="collision"):
+        _merge_size_and_automation_stats({"human_loc_changed": 1}, {"human_loc_changed": True})
+
+
+def test_analyze_pr_author_kind_always_in_closed_literal_set() -> None:
+    """§10.4.2: ``stats['pr_author_kind']`` is always a ``PrAuthorKind`` value."""
+
+    allowed = frozenset(get_args(PrAuthorKind))
+    authors = [
+        "",
+        "   ",
+        "octocat",
+        "dependabot[bot]",
+        "  dependabot[bot]  ",
+        "Copilot",
+        "github-actions[bot]",
+        "  github-actions[bot]  ",
+        "renovate-bot",
+        "some-human",
+    ]
+    for author in authors:
+        engine_input = EngineInput(
+            pr=_pr(author=author, additions=1, deletions=0, changed_files=1),
+            files=[_file("README.md", changes=1)],
+        )
+        kind = analyze(engine_input).stats["pr_author_kind"]
+        assert kind in allowed, f"author={author!r} -> {kind!r}"

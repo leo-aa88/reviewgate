@@ -17,11 +17,15 @@ This module does two things:
 Shipped login lists are intentionally explicit (frozensets); extend them
 via project issues when new stable ``user.login`` values are confirmed.
 
+Keys produced for §10.2 ``stats`` are listed in :data:`AUTOMATION_STATS_KEYS`;
+they must stay disjoint from :class:`reviewgate.core.size.SizeStats` field names.
+
 Pure: no I/O, no GitHub API dependency.
 """
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Final, Literal
 
 from pydantic import JsonValue
@@ -35,7 +39,11 @@ PrAuthorKind = Literal[
     "coding_agent_automation",
     "generic_automation",
 ]
-"""Closed set stored in §10.2 ``stats["pr_author_kind"]``."""
+"""Closed set stored in §10.2 ``stats["pr_author_kind"]``.
+
+Consumers should import this alias from :mod:`reviewgate.core` (package root)
+for typed comparisons; string literals remain stable in JSON output.
+"""
 
 KNOWN_DEPENDENCY_AUTOMATION_LOGINS: Final[frozenset[str]] = frozenset(
     {
@@ -70,6 +78,19 @@ KNOWN_CODING_AGENT_AUTOMATION_LOGINS: Final[frozenset[str]] = frozenset(
 Notes:
     GitHub returns ``user.login`` case-sensitively in JSON; unknown variants
     fall through to :func:`classify_pr_author_login` until added here.
+"""
+
+AUTOMATION_STATS_KEYS: Final[frozenset[str]] = frozenset(
+    {
+        "pr_author_kind",
+        "pr_author_login",
+        "dependency_automation_manifest_only",
+    },
+)
+"""Keys merged into ``ReviewabilityReport.stats`` beyond :class:`SizeStats`.
+
+Must remain disjoint from ``SizeStats`` field names; :func:`reviewgate.core.engine.analyze`
+asserts at merge time.
 """
 
 _MANIFEST_CATEGORIES_FOR_OVERRIDE: Final[frozenset[str]] = frozenset(
@@ -128,16 +149,32 @@ def is_known_dependency_automation_login(login: str) -> bool:
         login: ``EngineInput.pr.author`` (GitHub ``user.login``).
 
     Returns:
-        ``True`` when :func:`classify_pr_author_login` would return
-        ``\"dependency_automation\"``.
+        ``True`` when :func:`classify_pr_author_login` returns
+        ``dependency_automation``.
     """
 
     return classify_pr_author_login(login) == "dependency_automation"
 
 
+def _manifest_rows_qualify_for_dependency_override(
+    file_categories: Sequence[FileCategoryRow],
+) -> bool:
+    """Return True when every row is manifest/lockfile-only and no ``source`` file."""
+
+    if not file_categories:
+        return False
+    for row in file_categories:
+        if "source" in row.categories:
+            return False
+        cats = frozenset(row.categories)
+        if not (cats & _MANIFEST_CATEGORIES_FOR_OVERRIDE):
+            return False
+    return True
+
+
 def is_manifest_only_dependency_automation_pr(
     author: str,
-    file_categories: list[FileCategoryRow],
+    file_categories: Sequence[FileCategoryRow],
 ) -> bool:
     """Return whether size stats should treat this PR as manifest-only bot work.
 
@@ -153,30 +190,23 @@ def is_manifest_only_dependency_automation_pr(
         ``True`` when the override rules apply; ``False`` otherwise.
     """
 
-    if not is_known_dependency_automation_login(author):
-        return False
-    if not file_categories:
-        return False
-    for row in file_categories:
-        if "source" in row.categories:
-            return False
-        cats = frozenset(row.categories)
-        if not (cats & _MANIFEST_CATEGORIES_FOR_OVERRIDE):
-            return False
-    return True
+    return classify_pr_author_login(author) == "dependency_automation" and _manifest_rows_qualify_for_dependency_override(
+        file_categories,
+    )
 
 
 def finalize_size_stats_for_pr_author(
     base: SizeStats,
     *,
     author: str,
-    file_categories: list[FileCategoryRow],
+    file_categories: Sequence[FileCategoryRow],
 ) -> tuple[SizeStats, dict[str, JsonValue]]:
     """Adjust :class:`SizeStats` for dependency bots and attach author metadata.
 
     Always injects ``pr_author_kind`` (and ``pr_author_login`` when non-empty)
-    for §10.2 consumers. When :func:`is_manifest_only_dependency_automation_pr`
-    is true, sets ``human_loc_changed`` to ``0`` and ``excluded_loc_changed`` to
+    for §10.2 consumers. When the author classifies as dependency automation
+    and every row qualifies for the manifest-only rule, sets
+    ``human_loc_changed`` to ``0`` and ``excluded_loc_changed`` to
     ``raw_loc_changed`` so §10.3 size warnings do not fire on manifest churn.
 
     Args:
@@ -189,17 +219,20 @@ def finalize_size_stats_for_pr_author(
 
     Example:
         ``dependabot[bot]`` with only ``requirements.txt`` yields
-        ``pr_author_kind == \"dependency_automation\"`` and
+        ``pr_author_kind`` of ``dependency_automation`` and
         ``dependency_automation_manifest_only: true``.
     """
 
     extra: dict[str, JsonValue] = {}
     stripped = author.strip()
-    extra["pr_author_kind"] = classify_pr_author_login(author)
+    kind = classify_pr_author_login(author)
+    extra["pr_author_kind"] = kind
     if stripped:
         extra["pr_author_login"] = stripped
 
-    if not is_manifest_only_dependency_automation_pr(author, file_categories):
+    if kind != "dependency_automation" or not _manifest_rows_qualify_for_dependency_override(
+        file_categories,
+    ):
         return base, extra
 
     adjusted = base.model_copy(
@@ -213,6 +246,7 @@ def finalize_size_stats_for_pr_author(
 
 
 __all__ = [
+    "AUTOMATION_STATS_KEYS",
     "KNOWN_CODING_AGENT_AUTOMATION_LOGINS",
     "KNOWN_DEPENDENCY_AUTOMATION_LOGINS",
     "PrAuthorKind",

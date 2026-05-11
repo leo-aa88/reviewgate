@@ -5,24 +5,27 @@ from __future__ import annotations
 import pytest
 
 from reviewgate.core.automation_pr import (
+    AUTOMATION_STATS_KEYS,
+    KNOWN_CODING_AGENT_AUTOMATION_LOGINS,
+    KNOWN_DEPENDENCY_AUTOMATION_LOGINS,
     classify_pr_author_login,
     finalize_size_stats_for_pr_author,
     is_known_dependency_automation_login,
     is_manifest_only_dependency_automation_pr,
 )
-from reviewgate.core.schemas import FileCategoryRow
+from reviewgate.core.schemas import FileCategory, FileCategoryRow
 from reviewgate.core.size import SizeStats
 
 
 def _row(
     filename: str,
     *,
-    categories: tuple[str, ...],
+    categories: tuple[FileCategory, ...],
     changes: int = 1,
 ) -> FileCategoryRow:
     return FileCategoryRow(
         filename=filename,
-        categories=list(categories),  # type: ignore[arg-type]
+        categories=list(categories),
         risky=False,
         human_authored=True,
         changes=changes,
@@ -39,6 +42,7 @@ def _row(
         ("copilot[bot]", "coding_agent_automation"),
         ("cursor[bot]", "coding_agent_automation"),
         ("github-actions[bot]", "generic_automation"),
+        ("  github-actions[bot]  ", "generic_automation"),
         ("octocat", "human"),
         ("", "human"),
         ("   ", "human"),
@@ -46,6 +50,16 @@ def _row(
 )
 def test_classify_pr_author_login(login: str, expected: str) -> None:
     assert classify_pr_author_login(login) == expected
+
+
+@pytest.mark.parametrize("login", sorted(KNOWN_DEPENDENCY_AUTOMATION_LOGINS))
+def test_dependency_allow_list_maps_to_dependency_automation(login: str) -> None:
+    assert classify_pr_author_login(login) == "dependency_automation"
+
+
+@pytest.mark.parametrize("login", sorted(KNOWN_CODING_AGENT_AUTOMATION_LOGINS))
+def test_coding_agent_allow_list_maps_to_coding_agent_automation(login: str) -> None:
+    assert classify_pr_author_login(login) == "coding_agent_automation"
 
 
 @pytest.mark.parametrize(
@@ -62,6 +76,13 @@ def test_classify_pr_author_login(login: str, expected: str) -> None:
 )
 def test_is_known_dependency_automation_login(login: str, expected: bool) -> None:
     assert is_known_dependency_automation_login(login) is expected
+
+
+def test_automation_stats_keys_disjoint_from_size_stats_fields() -> None:
+    """Invariant for engine merge: extras never collide with ``SizeStats`` dump keys."""
+
+    overlap = AUTOMATION_STATS_KEYS & set(SizeStats.model_fields)
+    assert not overlap, f"collision keys: {overlap}"
 
 
 def test_manifest_only_requires_dependency_or_lockfile_per_row() -> None:
@@ -132,6 +153,15 @@ def test_finalize_leaves_human_authors_untouched() -> None:
     assert "dependency_automation_manifest_only" not in extra
     assert extra["pr_author_kind"] == "human"
     assert extra["pr_author_login"] == "octocat"
+
+
+def test_pr_author_kind_alias_matches_submodule_and_package_root_export() -> None:
+    """``reviewgate.core`` re-exports :data:`PrAuthorKind` for typed consumers."""
+
+    import reviewgate.core as rg_core
+    from reviewgate.core.automation_pr import PrAuthorKind as module_literal
+
+    assert rg_core.PrAuthorKind is module_literal
 
 
 def test_finalize_tags_copilot_without_manifest_override() -> None:

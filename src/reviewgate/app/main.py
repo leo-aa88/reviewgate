@@ -5,7 +5,8 @@ such as uvicorn. It wires the §17.2 health probe, the §17.1 GitHub webhook
 route (issue #33), the §5.1 ``GET /privacy`` page (issue #37), the minimal
 landing, install-success, and feedback pages (issues #38, #55), and
 ``POST /api/beta-leads`` / ``POST /api/beta-feedback`` (issues #39, #55).
-The webhook installs the Dramatiq Redis broker on demand
+Optional hosted LLM enrichment runs in the worker when ``llm_reports`` is
+enabled (§11; issues #57–#64). The webhook installs the Dramatiq Redis broker on demand
 when enqueueing (see :mod:`reviewgate.app.analysis.broker_install`).
 
 Example:

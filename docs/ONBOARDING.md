@@ -19,6 +19,12 @@ posts useful comments.
 > `llm_reports: true` in `.reviewgate.yml` and (b) confirm during
 > beta onboarding. Deterministic-only mode is always available and
 > never sends PR content off your repository.
+>
+> **Hosted deployments:** enabling `llm_reports: true` also requires the
+> operator to set **`REVIEWGATE_OPENAI_API_KEY`** on the App service (plus
+> optional **`REVIEWGATE_LLM_MODEL`** and **`REVIEWGATE_OPENAI_API_BASE_URL`**
+> for OpenAI-compatible gateways). Without a key, the worker keeps the
+> deterministic report and skips provider calls.
 
 ---
 

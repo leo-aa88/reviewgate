@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime
+from decimal import Decimal
 from typing import TYPE_CHECKING, Final, Literal, NamedTuple
 
 from sqlalchemy import select
@@ -243,8 +244,13 @@ def insert_analysis_report(
     *,
     report_json: dict[str, object],
     deterministic_json: dict[str, object],
+    llm_used: bool = False,
+    llm_provider: str | None = None,
+    input_tokens: int | None = None,
+    output_tokens: int | None = None,
+    estimated_cost_usd: Decimal | None = None,
 ) -> uuid.UUID:
-    """Insert a deterministic ``analysis_reports`` row (issue #50)."""
+    """Insert an ``analysis_reports`` row (deterministic + optional LLM merge)."""
 
     report_id = uuid.uuid4()
     session.add(
@@ -253,7 +259,11 @@ def insert_analysis_report(
             analysis_id=analysis_id,
             report_json=report_json,
             deterministic_json=deterministic_json,
-            llm_used=False,
+            llm_used=llm_used,
+            llm_provider=llm_provider,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            estimated_cost_usd=estimated_cost_usd,
             created_at=datetime.now(tz=UTC),
         ),
     )

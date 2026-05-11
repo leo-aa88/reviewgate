@@ -569,7 +569,7 @@ Contributions are welcome. Before opening a PR:
 
 1. Project norms and maintainer expectations are summarized in
    [`GOVERNANCE.md`](GOVERNANCE.md). Dependency updates are automated via
-   [Dependabot](.github/dependabot.yml) (weekly PRs for pip and GitHub Actions).
+   Dependabot — see [`.github/dependabot.yml`](.github/dependabot.yml).
 2. Read [`CONTRIBUTING.md`](CONTRIBUTING.md) — the §4.1 purity
    boundary is enforced in CI; any new dependency on a forbidden
    module (network, DB, LLM, GitHub SDK, `subprocess`, …) will fail

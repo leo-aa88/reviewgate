@@ -177,7 +177,7 @@ def test_pipeline_config_missing_via_contents_404() -> None:
     settings = _github_app_settings()
     transport = _pipeline_handler(head_sha=_HEAD_SHA, config_contents=None)
     with httpx.Client(transport=transport) as client:
-        report, cfg = run_pr_analysis_for_natural_key(
+        report, cfg, _artifacts = run_pr_analysis_for_natural_key(
             settings,
             key,
             ctx,
@@ -221,7 +221,7 @@ def test_pipeline_config_present_via_contents_yml() -> None:
     settings = _github_app_settings()
     transport = _pipeline_handler(head_sha=_HEAD_SHA, config_contents=contents_ok)
     with httpx.Client(transport=transport) as client:
-        _report, cfg = run_pr_analysis_for_natural_key(
+        _report, cfg, _artifacts = run_pr_analysis_for_natural_key(
             settings,
             key,
             ctx,

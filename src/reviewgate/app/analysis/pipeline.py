@@ -5,8 +5,9 @@ effective repository config, and runs :func:`reviewgate.core.engine.analyze`.
 Patches are not passed into the deterministic engine by default (``docs/DESIGN.md``
 §11.5 / §21.2).
 
-:func:`run_pr_analysis_for_natural_key` returns ``(report, config)`` so callers
-can apply §14.1 ``mode`` when publishing GitHub feedback (issue #54).
+:func:`run_pr_analysis_for_natural_key` returns ``(report, config, artifacts)``
+so callers can run the optional hosted LLM stage (issues #57–#64) and apply
+§14.1 ``mode`` when publishing GitHub feedback (issue #54).
 """
 
 from __future__ import annotations
@@ -57,6 +58,18 @@ _GITHUB_FILE_STATUS_TO_ENGINE: Final[dict[str, FileStatus]] = {
 }
 
 _WARN_HUGE_PR: Final[str] = "huge_pr_changed_files"
+
+
+@dataclass(frozen=True, slots=True)
+class PipelineAnalysisArtifacts:
+    """PR metadata and file list for hosted LLM packaging (§11.5).
+
+    Absent only on §22.3 fail-fast paths where YAML and full file fetches are skipped.
+    """
+
+    pr: PRRecord
+    files: list[ChangedFile]
+    changed_files_count: int
 
 
 class AnalysisPipelineUserError(ValueError):
@@ -225,7 +238,7 @@ def run_pr_analysis_for_natural_key(
     ctx: HostRepoContext,
     *,
     http_client: httpx.Client,
-) -> tuple[ReviewabilityReport, ReviewGateConfig]:
+) -> tuple[ReviewabilityReport, ReviewGateConfig, PipelineAnalysisArtifacts | None]:
     """Fetch PR data from GitHub, build :class:`~reviewgate.core.schemas.EngineInput`, run core.
 
     Args:
@@ -235,9 +248,11 @@ def run_pr_analysis_for_natural_key(
         http_client: Shared HTTP client for GitHub calls.
 
     Returns:
-        Tuple of the deterministic :class:`~reviewgate.core.schemas.ReviewabilityReport`
-        and the effective :class:`~reviewgate.core.config.ReviewGateConfig` loaded from
-        the repository (or defaults for §22.3 fail-fast before YAML is read).
+        Tuple of the deterministic :class:`~reviewgate.core.schemas.ReviewabilityReport`,
+        the effective :class:`~reviewgate.core.config.ReviewGateConfig` loaded from
+        the repository (or defaults for §22.3 fail-fast before YAML is read), and
+        optional :class:`PipelineAnalysisArtifacts` for hosted LLM input packaging
+        (``None`` on fail-fast early return).
 
     Raises:
         GitHubRestError: On GitHub HTTP failures (respect ``retriable``).
@@ -271,6 +286,7 @@ def run_pr_analysis_for_natural_key(
         return (
             _fail_fast_report(pr_record, tier_cls.fail_fast_message or ""),
             ReviewGateConfig(),
+            None,
         )
 
     files_raw = fetch_pull_request_files(
@@ -318,4 +334,9 @@ def run_pr_analysis_for_natural_key(
         files=changed_files,
         config=load_result.config.model_dump(mode="json"),
     )
-    return analyze(engine_input), load_result.config
+    artifacts = PipelineAnalysisArtifacts(
+        pr=pr_record,
+        files=changed_files,
+        changed_files_count=pr_record.changed_files,
+    )
+    return analyze(engine_input), load_result.config, artifacts

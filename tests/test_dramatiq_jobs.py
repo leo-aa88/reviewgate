@@ -41,12 +41,36 @@ def _minimal_pass_reviewability_report() -> object:
     )
 
 
-def _pipeline_success_tuple() -> tuple[object, object]:
-    """Pair returned by :func:`run_pr_analysis_for_natural_key` in worker tests."""
+def _pipeline_success_tuple() -> tuple[object, object, object]:
+    """Triple returned by :func:`run_pr_analysis_for_natural_key` in worker tests."""
 
+    from reviewgate.app.analysis.pipeline import PipelineAnalysisArtifacts
     from reviewgate.core.config import ReviewGateConfig
+    from reviewgate.core.schemas import ChangedFile, PRRecord
 
-    return (_minimal_pass_reviewability_report(), ReviewGateConfig())
+    artifacts = PipelineAnalysisArtifacts(
+        pr=PRRecord(
+            title="t",
+            body="body text for tests",
+            author="a",
+            base_branch="main",
+            head_branch="f",
+            additions=1,
+            deletions=0,
+            changed_files=1,
+        ),
+        files=[
+            ChangedFile(
+                filename="x.py",
+                status="modified",
+                additions=1,
+                deletions=0,
+                changes=1,
+            ),
+        ],
+        changed_files_count=1,
+    )
+    return (_minimal_pass_reviewability_report(), ReviewGateConfig(), artifacts)
 
 
 def test_run_pr_analysis_stub_invokes_with_stub_broker() -> None:

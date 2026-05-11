@@ -40,6 +40,7 @@ from reviewgate.app.analysis.pipeline import (
     resolve_host_repo_context,
     run_pr_analysis_for_natural_key,
 )
+from reviewgate.app.llm.stage import maybe_apply_hosted_llm_stage
 from reviewgate.app.analysis.result_cache import (
     get_cached_final_report,
     set_cached_final_report,
@@ -132,7 +133,12 @@ def run_pr_analysis_stub(payload: dict[str, object]) -> None:
 
     session_factory = create_session_factory(engine)
     publish_work: (
-        tuple[HostRepoContext, AnalysisNaturalKey, ReviewabilityReport, ReviewGateConfig]
+        tuple[
+            HostRepoContext,
+            AnalysisNaturalKey,
+            ReviewabilityReport,
+            ReviewGateConfig,
+        ]
         | None
     ) = None
     with session_factory() as session:
@@ -197,7 +203,11 @@ def run_pr_analysis_stub(payload: dict[str, object]) -> None:
                 else:
                     try:
                         with httpx.Client(timeout=30.0) as http_client:
-                            report, effective_config = run_pr_analysis_for_natural_key(
+                            (
+                                report,
+                                effective_config,
+                                pipeline_artifacts,
+                            ) = run_pr_analysis_for_natural_key(
                                 settings,
                                 natural,
                                 ctx,
@@ -226,8 +236,16 @@ def run_pr_analysis_stub(payload: dict[str, object]) -> None:
                     except httpx.HTTPError:
                         raise
                     else:
-                        dumped = report.model_dump(mode="json")
-                        stats_obj = dumped.get("stats")
+                        deterministic_dump = report.model_dump(mode="json")
+                        llm_outcome = maybe_apply_hosted_llm_stage(
+                            settings,
+                            deterministic_report=report,
+                            effective_config=effective_config,
+                            artifacts=pipeline_artifacts,
+                        )
+                        final_report = llm_outcome.report
+                        final_dump = final_report.model_dump(mode="json")
+                        stats_obj = final_dump.get("stats")
                         stats_map = (
                             stats_obj
                             if isinstance(stats_obj, dict)
@@ -252,24 +270,29 @@ def run_pr_analysis_stub(payload: dict[str, object]) -> None:
                         mark_analysis_completed(
                             session,
                             analysis_id,
-                            reviewability=report.reviewability,
+                            reviewability=final_report.reviewability,
                         )
                         insert_analysis_report(
                             session,
                             analysis_id,
-                            report_json=dumped,
-                            deterministic_json=dumped,
+                            report_json=final_dump,
+                            deterministic_json=deterministic_dump,
+                            llm_used=llm_outcome.llm_used,
+                            llm_provider=llm_outcome.llm_provider,
+                            input_tokens=llm_outcome.input_tokens,
+                            output_tokens=llm_outcome.output_tokens,
+                            estimated_cost_usd=llm_outcome.estimated_cost_usd,
                         )
                         if settings.redis_url is not None:
                             set_cached_final_report(
                                 settings,
                                 natural,
                                 {
-                                    "reviewability": report.reviewability,
-                                    "stats": report.stats,
+                                    "reviewability": final_report.reviewability,
+                                    "stats": final_report.stats,
                                 },
                             )
-                        publish_work = (ctx, natural, report, effective_config)
+                        publish_work = (ctx, natural, final_report, effective_config)
             session.commit()
 
     if publish_work is not None:

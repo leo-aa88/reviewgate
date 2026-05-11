@@ -103,3 +103,18 @@ class AppSettings(BaseSettings):
             "login as ``{slug}[bot]`` (§13.8)."
         ),
     )
+    openai_api_key: SecretStr | None = Field(
+        default=None,
+        description=(
+            "OpenAI-compatible API key for hosted LLM reports (§11; issue #57). "
+            "When unset, ``llm_reports: true`` still skips provider calls."
+        ),
+    )
+    openai_api_base_url: str = Field(
+        default="https://api.openai.com",
+        description="Base URL for chat completions (OpenAI or compatible gateway).",
+    )
+    llm_model: str = Field(
+        default="gpt-4o-mini",
+        description="Default chat model for structured reviewability JSON (§11.4).",
+    )

@@ -11,7 +11,10 @@ import httpx
 import pytest
 from pydantic import SecretStr
 
-from reviewgate.app.analysis.hosted_github_outputs import publish_hosted_pr_github_feedback
+from reviewgate.app.analysis.hosted_github_outputs import (
+    _comment_markdown,
+    publish_hosted_pr_github_feedback,
+)
 from reviewgate.app.analysis.pipeline import HostRepoContext
 from reviewgate.app.github.auth import InstallationAccessToken
 from reviewgate.app.settings import AppSettings
@@ -262,3 +265,23 @@ def test_publish_skips_check_run_when_status_check_disabled(
         )
 
     assert not any(p.endswith("/check-runs") for p in paths)
+
+
+def test_comment_markdown_appends_llm_narrative_when_present() -> None:
+    """§14.1 PR comment includes optional hosted LLM summary (issue #64)."""
+
+    report = ReviewabilityReport(
+        reviewability="WARN",
+        stats={
+            "files_changed": 1,
+            "llm": {"summary": "Consider splitting API and UI changes."},
+        },
+        warnings=[],
+        suggested_labels=suggested_labels("WARN", [], ReviewGateConfig().labels),
+        file_categories=[],
+        split_hints=[],
+        reviewer_checklist=[],
+    )
+    body = _comment_markdown(report)
+    assert "Hosted narrative" in body
+    assert "splitting API" in body

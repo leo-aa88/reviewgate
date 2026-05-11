@@ -63,6 +63,11 @@ def _comment_markdown(report: ReviewabilityReport) -> str:
             lines.append(f"- **{w.code}**: {w.message}")
     else:
         lines.append("No deterministic warnings.")
+    llm_block = report.stats.get("llm")
+    if isinstance(llm_block, dict):
+        summary = llm_block.get("summary")
+        if isinstance(summary, str) and summary.strip():
+            lines.extend(["", "### Hosted narrative", "", summary.strip()])
     return "\n".join(lines)
 
 

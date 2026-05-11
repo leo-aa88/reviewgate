@@ -36,6 +36,7 @@ from reviewgate.app.analysis.result_cache import (
     set_cached_final_report,
 )
 from reviewgate.app.analysis.worker_job_lock import worker_job_lock_hold
+from reviewgate.app.rate_limit.limiter import check_analysis_rate_limits
 from reviewgate.app.settings import AppSettings
 from reviewgate.app.storage.db import create_engine_from_settings, create_session_factory
 from reviewgate.app.storage.repositories import (
@@ -76,7 +77,8 @@ def run_pr_analysis_stub(payload: dict[str, object]) -> None:
             when another worker already holds ``running`` (``already_running``) or
             the row is ``already_completed``. When Redis is configured, §13.6
             final-result cache (issue #48) is consulted after the worker lock and
-            populated after a fresh ``completed`` transition.
+            populated after a fresh ``completed`` transition. §22.2 Redis counters
+            (issue #49) run after the installation guard when Redis is configured.
     """
 
     settings = AppSettings()
@@ -113,6 +115,15 @@ def run_pr_analysis_stub(payload: dict[str, object]) -> None:
                 github_installation_id=raw_inst,
                 github_repository_id=raw_repo,
             ):
+                return
+
+        if need_installation_guard and settings.redis_url is not None:
+            outcome = check_analysis_rate_limits(
+                settings,
+                github_installation_id=raw_inst,
+                github_repository_id=raw_repo,
+            )
+            if outcome != "ok":
                 return
 
         with lock_ctx as lock_acquired:

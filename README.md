@@ -47,11 +47,13 @@ as a proprietary split. See [`docs/DESIGN.md` §19](docs/DESIGN.md).
 - [CLI usage](#cli-usage)
 - [Onboarding](#onboarding)
 - [Docker image](#docker-image)
+- [Hosted stack (local)](docs/HOSTED_LOCAL.md)
 - [Makefile (local development)](#makefile-local-development)
 - [Project layout](#project-layout)
 - [Status](#status)
 - [Roadmap](#roadmap)
 - [Contributing](#contributing)
+- [Governance](GOVERNANCE.md)
 - [Security](#security)
 - [License](#license)
 - [Acknowledgements](#acknowledgements)
@@ -431,6 +433,10 @@ The build context is trimmed by [`.dockerignore`](.dockerignore) (tests, docs,
 virtualenvs, and caches are omitted). The image runs as a non-root `reviewgate`
 user (UID 1000).
 
+For a **copy-paste local stack** (venv, Postgres + Redis, env vars,
+`alembic upgrade head`, `reviewgate-api` + `reviewgate-worker`, and a
+`curl /health` check), use **[`docs/HOSTED_LOCAL.md`](docs/HOSTED_LOCAL.md)**.
+
 ---
 
 ## Makefile (local development)
@@ -561,17 +567,20 @@ roadmap** work, tracked in GitHub issues from
 
 Contributions are welcome. Before opening a PR:
 
-1. Read [`CONTRIBUTING.md`](CONTRIBUTING.md) — the §4.1 purity
+1. Project norms and maintainer expectations are summarized in
+   [`GOVERNANCE.md`](GOVERNANCE.md). Dependency updates are automated via
+   [Dependabot](.github/dependabot.yml) (weekly PRs for pip and GitHub Actions).
+2. Read [`CONTRIBUTING.md`](CONTRIBUTING.md) — the §4.1 purity
    boundary is enforced in CI; any new dependency on a forbidden
    module (network, DB, LLM, GitHub SDK, `subprocess`, …) will fail
    the build.
-2. Anchor your change to a §-numbered section of
+3. Anchor your change to a §-numbered section of
    [`docs/DESIGN.md`](docs/DESIGN.md) or to an existing issue.
-3. Add at least one fixture under
+4. Add at least one fixture under
    [`tests/fixtures/m2_golden/`](tests/fixtures/m2_golden/) when you
    add a new heuristic, or a unit test next to an existing one.
-4. Run the full suite locally (`pytest`) on Python 3.12+.
-5. Follow [Conventional Commits](https://www.conventionalcommits.org)
+5. Run the full suite locally (`pytest`) on Python 3.12+.
+6. Follow [Conventional Commits](https://www.conventionalcommits.org)
    for the commit message; PR titles are merged verbatim.
 
 This project follows the [Contributor Covenant 2.1](CODE_OF_CONDUCT.md).

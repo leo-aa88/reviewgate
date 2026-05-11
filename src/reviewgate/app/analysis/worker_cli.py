@@ -7,12 +7,21 @@ to Dramatiq (for example ``--processes`` or ``--threads``).
 
 from __future__ import annotations
 
+import importlib.util
 import sys
 from subprocess import call
+
+_APP_EXTRA_MESSAGE = (
+    "reviewgate-worker requires the hosted app dependencies. "
+    'Install them with: pip install "reviewgate[app]"'
+)
 
 
 def main() -> None:
     """Run Dramatiq targeting :mod:`reviewgate.app.analysis.worker_app`."""
+
+    if importlib.util.find_spec("dramatiq") is None:
+        raise SystemExit(_APP_EXTRA_MESSAGE)
 
     argv = [
         sys.executable,

@@ -75,6 +75,9 @@ reviewgate-api = "reviewgate.app.api_cli:main"
 # dev-only dependency; no runtime code imports from `types-PyYAML`.
 dev = [
     "pytest>=8.0",
+    "ruff>=0.8.0",
+    "build>=1.2.0",
+    "twine>=5.0.0",
     "types-PyYAML>=6.0",
 ]
 # Hosted GitHub App persistence (``docs/DESIGN.md`` §16.1). Kept optional so
@@ -99,6 +102,20 @@ testpaths = ["tests"]
 # -e ".[dev]"``), matching production imports instead of shadowing them with
 # raw ``src/`` on ``PYTHONPATH``.
 pythonpath = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F"]
+ignore = [
+    # Keep existing style stable while still enforcing correctness-oriented rules.
+    "E501",
+]
+
+[tool.ruff.format]
+quote-style = "double"
 
 [tool.hatch.build.targets.wheel]
 # Ship both ``reviewgate`` (engine) and ``reviewgate_action`` (GitHub Action runtime)

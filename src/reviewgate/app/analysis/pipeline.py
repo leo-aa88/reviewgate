@@ -23,7 +23,6 @@ from reviewgate.app.analysis.config_hash import fetch_reviewgate_yml_and_config_
 from reviewgate.app.analysis.pr_file_tiers import classify_changed_file_count
 from reviewgate.app.github.auth import fetch_installation_access_token
 from reviewgate.app.github.client import (
-    GitHubRestError,
     fetch_pull_request,
     fetch_pull_request_files,
 )

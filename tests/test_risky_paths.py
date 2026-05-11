@@ -193,9 +193,6 @@ def test_body_mentions_risky_file_path_segment_satisfies_check() -> None:
     ]
     # Even without the keyword "migration" or the basename, mentioning
     # the directory segment is enough rationale.
-    body = (
-        "Bumps the users schema; see the new file under backend/."
-    )
     # Note: "schema" is in the migration keyword set, so this also
     # satisfies via keyword. Use a body that only references the path
     # to isolate the path-token branch:

@@ -6,7 +6,7 @@
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-blue.svg)](https://www.python.org/downloads/)
 [![Code style: ruff](https://img.shields.io/badge/code%20style-ruff-000000.svg)](https://github.com/astral-sh/ruff)
-[![Tests: 890+ passing](https://img.shields.io/badge/tests-890%2B%20passing-brightgreen.svg)](#testing)
+[![Tests: pytest](https://img.shields.io/badge/tests-pytest-brightgreen.svg)](#testing)
 [![Status: beta](https://img.shields.io/badge/status-beta-orange.svg)](#status)
 [![Conventional Commits](https://img.shields.io/badge/Conventional%20Commits-1.0.0-yellow.svg)](https://www.conventionalcommits.org)
 
@@ -25,13 +25,12 @@ Apache 2.0:
 * [`src/reviewgate_action/`](src/reviewgate_action/) — the GitHub Action
   wrapper that runs the engine on every PR.
 
-The **hosted GitHub App**, **LLM-augmented report layer**, and **public
-PR URL analyzer** are part of the same MVP and the same license. They
-are tracked openly on the [issue tracker](https://github.com/leo-aa88/reviewgate/issues)
-(from [issue #28](https://github.com/leo-aa88/reviewgate/issues/28)
-onward); implementation may land in this monorepo or in sibling
-repositories under the same org for packaging and deployment only, not
-as a proprietary split. See [`docs/DESIGN.md` §19](docs/DESIGN.md).
+The **hosted GitHub App** and **LLM-augmented report layer** are also
+open source in this repository under [`src/reviewgate/app/`](src/reviewgate/app/).
+The public PR URL analyzer remains future work, tracked openly on the
+[issue tracker](https://github.com/leo-aa88/reviewgate/issues); any
+future packaging split is for deployment only, not a proprietary fork.
+See [`docs/DESIGN.md` §19](docs/DESIGN.md).
 
 ---
 
@@ -124,14 +123,19 @@ jobs:
       pull-requests: write
     steps:
       - uses: actions/checkout@v4
-      - uses: leo-aa88/reviewgate/src/reviewgate_action@v1
+      # Pre-release docs use @main until the first public tag is cut.
+      # After v0.1.0, pin a release tag instead.
+      - uses: leo-aa88/reviewgate/src/reviewgate_action@main
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           fail-on: FAIL
           post-comment: true
+          mode: action
 ```
 
-That alone gives you the §10 deterministic verdict on every PR, a
+`mode: action` makes the Action own comments and `fail-on` enforcement;
+the hosted App uses the `.reviewgate.yml` default `mode: app` instead.
+That workflow gives you the §10 deterministic verdict on every PR, a
 Markdown summary in the workflow run, and a single PR comment that
 updates in place on each push (using the `<!-- reviewgate-report -->`
 marker). To make the gate **block merges**, mark the workflow as a
@@ -156,7 +160,7 @@ recommended `.reviewgate.yml` starter.
               │                                 │                             │
    ┌──────────▼───────────┐         ┌───────────▼────────────┐   ┌────────────▼───────────┐
    │  reviewgate-action   │         │  Hosted ReviewGate App │   │  Local CLI             │
-   │  (this repo)         │         │  (separate, private)   │   │  reviewgate-core       │
+   │  (this repo)         │         │  (this repo; app extra)│   │  reviewgate-core       │
    │  GitHub Action       │         │  webhooks + LLM layer  │   │  → fixture JSON in     │
    │  fetches PR, runs    │         │  + status check        │   │    report JSON out     │
    │  engine, comments,   │         │  (§4.3, §11)           │   │  (§5.1)                │
@@ -300,12 +304,12 @@ jobs:
       pull-requests: write
     steps:
       - uses: actions/checkout@v4
-      - uses: leo-aa88/reviewgate/src/reviewgate_action@v1
+      - uses: leo-aa88/reviewgate/src/reviewgate_action@main
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           fail-on: FAIL
           post-comment: true
-          mode: auto
+          mode: action
 ```
 
 | Input | Default | Purpose |
@@ -450,7 +454,7 @@ Common workflows:
 | ------ | ------- |
 | `make install-dev` | Editable install with `[dev,app]` extras (matches CI). |
 | `make test` | Full `pytest` suite. |
-| `make check` | Tests plus Ruff lint (install Ruff separately: `pip install ruff`). |
+| `make check` | Tests plus Ruff lint (`make install-dev` installs Ruff). |
 | `make format` | Ruff format on `src/` and `tests/`. |
 | `make docker-build` | Build the Docker image (`IMAGE=…` to tag). |
 | `make alembic-upgrade` | `alembic upgrade head` (requires `REVIEWGATE_DATABASE_URL`). |
@@ -490,7 +494,7 @@ reviewgate/
 │           ├── run_core.py     # config + engine + fail-on + comment
 │           ├── coexistence.py  # §14.1 mode resolver
 │           └── post_comment.py # §13 marker-comment upsert
-├── tests/                       # pytest suite (890+ passed; see CI matrix)
+├── tests/                       # pytest suite; see CI matrix
 │   ├── fixtures/m2_golden/     # 14 §24.2 golden PR fixtures
 │   ├── test_core_purity.py     # §4.1 boundary enforcement (AST scan)
 │   └── …
@@ -523,17 +527,18 @@ reviewgate/
 
 * **`reviewgate-core` (deterministic engine):** runtime complete.
   All §10 heuristics from `docs/DESIGN.md` are implemented and
-  covered by 890+ passing tests on Python 3.12 and 3.13 (see CI matrix).
+  covered by the pytest suite on Python 3.12 and 3.13 (see CI matrix).
 * **`reviewgate-action` (GitHub Action):** runtime complete (issues
   #24, #25, #26 landed). Fetches PR metadata, loads `.reviewgate.yml`,
   runs the engine, applies the §14 `fail-on` policy, and (when §14.1
   coexistence allows) upserts the §13 PR comment.
-* **Hosted ReviewGate App:** not shipped in this tree yet, but **in
-  scope as open source** (same Apache 2.0). Work is tracked on GitHub
-  from [issue #28](https://github.com/leo-aa88/reviewgate/issues/28)
-  onward; paid ReviewGate Cloud (if offered) is a **hosting and
-  operations** layer on top of that code, not a closed-source fork.
-  See [`docs/DESIGN.md` §19](docs/DESIGN.md).
+* **Hosted ReviewGate App:** shipped in this tree under
+  [`src/reviewgate/app/`](src/reviewgate/app/) and installed with the
+  optional `app` extra (`pip install "reviewgate[app]"`). It includes
+  the FastAPI surface, webhook receiver, worker, persistence, GitHub
+  outputs, and hosted-only LLM report path. Paid ReviewGate Cloud (if
+  offered) is a **hosting and operations** layer on top of this code,
+  not a closed-source fork. See [`docs/DESIGN.md` §19](docs/DESIGN.md).
 * **Public release:** this repository is being prepared for public
   open-source release under Apache 2.0. Until the first signed
   release tag, treat the public API as stable but additive.
@@ -542,10 +547,12 @@ reviewgate/
 
 ## Roadmap
 
-The MVP scope for **core + Action** in this repository is complete.
-Near-term priorities for this tree:
+The MVP implementation is in beta hardening: core, Action, hosted App,
+and hosted LLM paths are in-tree, while public release still depends on
+operational beta evidence and a signed release tag. Near-term priorities:
 
-* First public release (`v0.1.0`) on PyPI and GitHub Releases.
+* First public release (`v0.1.0`) on PyPI and GitHub Releases, then
+  update Action snippets from `@main` to the signed release tag.
 * `pre-commit` hook configuration so the engine can run locally on
   staged changes.
 * Optional Action input for status-check name customisation (so a
@@ -554,12 +561,10 @@ Near-term priorities for this tree:
   formatting-only churn detection, dependency-update + behavior-change
   separation per §10.11 examples).
 
-Remaining MVP items — **hosted GitHub App**, **hosted LLM layer**, and
-**public PR URL analyzer** (see [`docs/DESIGN.md` §4.4](docs/DESIGN.md)
-and [§28 Future Public PR Analyzer](docs/DESIGN.md)) — are **open-source
-roadmap** work, tracked in GitHub issues from
-[#28](https://github.com/leo-aa88/reviewgate/issues/28) onward per
-[`docs/DESIGN.md` §19](docs/DESIGN.md).
+The remaining non-MVP item is the **public PR URL analyzer** (see
+[`docs/DESIGN.md` §4.4](docs/DESIGN.md) and
+[§28 Future Public PR Analyzer](docs/DESIGN.md)). Hosted App and hosted
+LLM implementation live in this repository.
 
 ---
 
@@ -591,15 +596,16 @@ By participating you agree to abide by its terms.
 ```bash
 python -m venv .venv
 source .venv/bin/activate
-pip install -e ".[dev]"
+pip install -e ".[dev,app]"
 pytest
 ```
 
 Equivalent shortcuts: `make venv` then activate, `make install-dev`, and
 `make test`. See [Makefile (local development)](#makefile-local-development).
 
-CI runs the same ``pytest`` job on Python **3.12** and **3.13** (see the
-matrix in [`.github/workflows/ci.yml`](.github/workflows/ci.yml)). This repo
+CI runs ``pytest`` on Python **3.12** and **3.13**, Ruff lint checks,
+Alembic upgrade/downgrade smoke tests, and package build verification (see
+the matrix in [`.github/workflows/ci.yml`](.github/workflows/ci.yml)). This repo
 also includes
 [`pr-llm-review.yml`](https://github.com/leo-aa88/reviewgate/blob/main/.github/workflows/pr-llm-review.yml),
 which can post an LLM-backed PR review when secrets are configured (see the workflow file; fork PRs are skipped).

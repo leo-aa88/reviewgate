@@ -41,7 +41,7 @@ Closes <!-- #issue -->.
 - [ ] If I changed `.reviewgate.yml` (§12), I updated the schema, the
       malformed-config recovery test, and `docs/QUICKSTART.md` /
       `docs/ONBOARDING.md` examples.
-- [ ] I ran `pytest` and all 890+ tests pass on Python 3.12.
+- [ ] I ran `pytest` and the suite passes on Python 3.12+.
 - [ ] I added or updated Google-style docstrings on any new public API.
 - [ ] I kept files under the soft cap (~500 LOC; hard cap 600) per
       `CONTRIBUTING.md`.

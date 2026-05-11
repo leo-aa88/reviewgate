@@ -46,7 +46,7 @@ def test_onboarding_doc_exists_at_documented_path() -> None:
         ".reviewgate.yml",
         "version: 1",
         # Optional GitHub Action (§14, #27 acceptance).
-        "leo-aa88/reviewgate/src/reviewgate_action@v1",
+        "leo-aa88/reviewgate/src/reviewgate_action@main",
         "fail-on: FAIL",
         # Required status check (§8.4, #27 acceptance).
         "required status check",

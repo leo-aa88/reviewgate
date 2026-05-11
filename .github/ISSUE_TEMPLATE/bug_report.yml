@@ -39,9 +39,10 @@ body:
       label: Version or commit SHA
       description: |
         `pip show reviewgate | grep Version`, the Action ref you used
-        (e.g. `leo-aa88/reviewgate/src/reviewgate_action@v1`), or the
+        (e.g. `leo-aa88/reviewgate/src/reviewgate_action@main` before
+        the first public tag), or the
         commit SHA you reproduced on.
-      placeholder: "0.1.0 / leo-aa88/reviewgate/src/reviewgate_action@v1 / a1b2c3d"
+      placeholder: "0.1.0 / leo-aa88/reviewgate/src/reviewgate_action@main / a1b2c3d"
     validations:
       required: true
 

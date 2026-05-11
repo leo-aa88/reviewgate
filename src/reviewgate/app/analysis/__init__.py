@@ -24,8 +24,14 @@ from reviewgate.app.analysis.pr_metadata_hash import (
     compute_pr_metadata_hash,
     normalize_text_for_pr_metadata_hash,
 )
+from reviewgate.app.analysis.result_cache import (
+    ANALYSIS_RESULT_CACHE_TTL_SECONDS,
+    get_cached_final_report,
+    set_cached_final_report,
+)
 
 __all__ = [
+    "ANALYSIS_RESULT_CACHE_TTL_SECONDS",
     "HUGE_PR_FAIL_FAST_MESSAGE",
     "PrFileTierClassification",
     "analysis_cache_key",
@@ -34,6 +40,8 @@ __all__ = [
     "compute_config_hash_from_yaml",
     "compute_pr_metadata_hash",
     "fetch_reviewgate_yml_and_config_hash",
+    "get_cached_final_report",
     "normalize_text_for_pr_metadata_hash",
+    "set_cached_final_report",
     "worker_job_lock_key",
 ]

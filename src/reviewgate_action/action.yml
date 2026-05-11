@@ -25,8 +25,7 @@
 # ``reviewgate/reviewgate-action`` repository because the `<path>`
 # segment simply collapses out.
 #
-# Pipeline (issues #24 + #25; #26 adds mode coexistence + comment
-# upsert):
+# Pipeline (DESIGN.md §14, §14.1, §13; `fetch_pr` / `run_core` wiring: issues #24–#26):
 #
 #   1. setup-python pins the runtime so `reviewgate.core` and the
 #      Action's stdlib HTTP client behave identically across runners.
@@ -40,13 +39,15 @@
 #      GitHub REST API (with documented pagination), and writes a
 #      §10.1 EngineInput JSON document.
 #   4. `reviewgate_action.run_core` loads `.reviewgate.yml`, runs
-#      `reviewgate.core.engine.analyze`, prints the report to
-#      stdout, writes a Markdown summary to `$GITHUB_STEP_SUMMARY`,
-#      and applies the §14 `fail-on` policy (exit 1 at threshold,
-#      exit 0 below it; `never` always exits 0).
-#
-# `post-comment` and `mode` are accepted today and validated, but
-# the actual upsert / coexistence behaviour lands in #26.
+#      `reviewgate.core.engine.analyze`, writes the §10.2 JSON report
+#      to the path passed as `--output-json`, prints a human summary to
+#      stderr and to `$GITHUB_STEP_SUMMARY` when set, applies the §14
+#      `fail-on` policy (exit 1 at threshold, exit 0 below it; `never`
+#      always exits 0), resolves §14.1 coexistence via
+#      `reviewgate_action.coexistence.decide` from `mode` + repo config,
+#      and when `post-comment: true` and coexistence allows the Action
+#      to own output, upserts the §13 marker comment via
+#      `reviewgate_action.post_comment` (requires `pull-requests: write`).
 
 name: ReviewGate
 description: >-
@@ -80,10 +81,11 @@ inputs:
   post-comment:
     description: >-
       When `true`, post or upsert the §13 ReviewGate marker comment on
-      the PR. The comment-upsert behaviour itself lands in #26; today
-      this Action always writes the report to the job summary and to
-      the `report-json` step output regardless of this flag. Default
-      `true` per §14.
+      the PR when §14.1 coexistence allows the Action to post (skipped
+      in `quiet` mode or when `.reviewgate.yml` pins `mode: app` and
+      `mode` is `auto`). The job summary and `report-json` output are
+      always written when `run_core` completes successfully, regardless
+      of this flag. Default `true` per §14.
     required: false
     default: "true"
 
@@ -91,9 +93,9 @@ inputs:
     description: >-
       Coexistence mode with the hosted ReviewGate App (§14.1). One of
       `auto`, `action`, or `quiet`. `auto` (the default per §14)
-      defers to `.reviewgate.yml` and stays quiet when the file pins
-      `mode: app`. The mode-aware skip behaviour lands in #26; this
-      Action accepts and validates the input today.
+      defers to `.reviewgate.yml` and skips PR comments plus `fail-on`
+      enforcement when the file pins `mode: app`. `action` forces the
+      Action to own posting; `quiet` never posts and ignores `fail-on`.
     required: false
     default: auto
 

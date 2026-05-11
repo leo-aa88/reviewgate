@@ -42,15 +42,18 @@ jobs:
       pull-requests: read
     steps:
       - uses: actions/checkout@v4
-      - uses: leo-aa88/reviewgate/src/reviewgate_action@v1
+      # Pre-release docs use @main until the first public tag is cut.
+      # After v0.1.0, pin a release tag instead.
+      - uses: leo-aa88/reviewgate/src/reviewgate_action@main
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           fail-on: FAIL
           post-comment: true
+          mode: action
 ```
 
-> **`uses:` path syntax.** GitHub Actions resolves `{owner}/{repo}/{path}@{ref}` as the subdirectory action at `{path}/action.yml` in `{owner}/{repo}`. This Action's `action.yml` lives at [`src/reviewgate_action/action.yml`](action.yml) in [`leo-aa88/reviewgate`](https://github.com/leo-aa88/reviewgate), so `leo-aa88/reviewgate/src/reviewgate_action@v1` is the documented subdirectory reference. See GitHub's "Using actions" docs ("Referencing an action in the same repository where a workflow file uses the action" and "Referencing an action in a different repository") for the spec.
-> When this monorepo is split per `docs/DESIGN.md` §14 ("Repository: `github.com/reviewgate/reviewgate-action`"), consumers will reference `reviewgate/reviewgate-action@v1` instead -- the `<path>` segment simply collapses out and the input contract stays identical.
+> **`uses:` path syntax.** GitHub Actions resolves `{owner}/{repo}/{path}@{ref}` as the subdirectory action at `{path}/action.yml` in `{owner}/{repo}`. This Action's `action.yml` lives at [`src/reviewgate_action/action.yml`](action.yml) in [`leo-aa88/reviewgate`](https://github.com/leo-aa88/reviewgate), so `leo-aa88/reviewgate/src/reviewgate_action@main` is the documented pre-release subdirectory reference. After the first public release, pin the release tag instead of `@main`. See GitHub's "Using actions" docs ("Referencing an action in the same repository where a workflow file uses the action" and "Referencing an action in a different repository") for the spec.
+> When this monorepo is split per `docs/DESIGN.md` §14 ("Repository: `github.com/reviewgate/reviewgate-action`"), consumers will reference that repository at a release tag (for example `reviewgate/reviewgate-action@v0.1.0`) instead -- the `<path>` segment simply collapses out and the input contract stays identical.
 
 ## Inputs
 
@@ -59,7 +62,7 @@ jobs:
 | `github-token` | yes | — | Token used to fetch PR metadata and (when `post-comment: true`, in #26) post the summary comment. Needs `pull-requests: read` and `contents: read` (`reviewgate_action.fetch_pr` calls `GET /repos/{owner}/{repo}/pulls/{n}` and the paginated `/files` endpoint); `pull-requests: write` will additionally be required for the comment-upsert path landing in #26. |
 | `fail-on` | no | `FAIL` | Verdict at or above which the workflow exits non-zero. One of `PASS`, `WARN`, `FAIL`, `never`. `never` always exits 0. |
 | `post-comment` | no | `"true"` | Whether to upsert the §13 ReviewGate marker comment on the PR. Honoured only when §14.1 coexistence permits the Action to post (i.e. `mode: action`, or `mode: auto` + `.reviewgate.yml` `mode: action` / `both`). Set `false` to keep the Action quiet on the PR surface even when coexistence would allow posting. **Comment-posting is auxiliary**: a failure (missing token, 403 from a token without `pull-requests: write`, etc.) is logged as `::error::` so it is highly visible in the PR check summary, but the workflow exit code is always driven by the engine verdict via `fail-on` so a posting hiccup cannot silently flip a PASS run to FAIL or vice versa. |
-| `mode` | no | `auto` | Coexistence with the hosted ReviewGate App (§14.1). One of `auto`, `action`, `quiet`. `auto` defers to `.reviewgate.yml` (default `mode: app` -> Action stays quiet). `action` makes the Action own the surface regardless of `.reviewgate.yml`. `quiet` mutes the Action entirely (no comment, `fail-on` is ignored, exit 0). |
+| `mode` | no | `auto` | Coexistence with the hosted ReviewGate App (§14.1). One of `auto`, `action`, `quiet`. `auto` defers to `.reviewgate.yml` (default `mode: app` -> Action stays quiet). Use `action` for Action-only installs so comments and `fail-on` enforcement are active. `quiet` mutes the Action entirely (no comment, `fail-on` is ignored, exit 0). |
 | `python-version` | no | `3.12` | Python version pin handed to `actions/setup-python`. The §15 stack requires 3.12+; override only to bump the patch release. |
 | `working-directory` | no | `""` | Workspace root used to look up `.reviewgate.yml`. Defaults to `$GITHUB_WORKSPACE`. Override only for non-standard checkouts (e.g. monorepo subdirectory pinned via `actions/checkout`'s `path:` input). |
 

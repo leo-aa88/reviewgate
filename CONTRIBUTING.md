@@ -67,7 +67,7 @@ referencing §4.1 before relaxing the contract.
 ```bash
 python -m venv .venv
 source .venv/bin/activate
-pip install -e ".[dev]"
+pip install -e ".[dev,app]"
 pytest
 ```
 

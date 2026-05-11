@@ -1409,7 +1409,8 @@ github.com/reviewgate/reviewgate-action
 **Open-source monorepo (today).** Until that repository exists, the same
 Action ships in [`leo-aa88/reviewgate`](https://github.com/leo-aa88/reviewgate)
 at `src/reviewgate_action/action.yml`. Consumers reference
-`leo-aa88/reviewgate/src/reviewgate_action@<tag>` (for example `@v1`).
+`leo-aa88/reviewgate/src/reviewgate_action@<tag>` (for example `@v0.1.0`
+after the first public release; pre-release docs may use `@main`).
 
 Usage:
 
@@ -1425,7 +1426,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: reviewgate/reviewgate-action@v1
+      - uses: reviewgate/reviewgate-action@v0.1.0
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           fail-on: FAIL

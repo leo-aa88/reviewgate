@@ -1,4 +1,4 @@
-ReviewGate -- open-source deterministic engine and GitHub Action
+ReviewGate -- open-source deterministic engine, GitHub Action, and hosted App
 Copyright 2025 Leonardo Araujo and ReviewGate contributors
 
 This product includes software developed by the ReviewGate project
@@ -24,9 +24,34 @@ This distribution depends on, but does not redistribute the source code
 of, the following third-party Python packages. Each is governed by its
 own license; see the upstream project for the authoritative text.
 
+Core runtime dependencies:
+
 * pydantic (MIT License)
   https://github.com/pydantic/pydantic
 * PyYAML (MIT License)
   https://pyyaml.org
 * pathspec (Mozilla Public License 2.0)
   https://github.com/cpburnz/python-pathspec
+
+Optional hosted App dependencies (installed with the `app` extra):
+
+* SQLAlchemy (MIT License)
+  https://www.sqlalchemy.org
+* Alembic (MIT License)
+  https://alembic.sqlalchemy.org
+* psycopg (GNU Lesser General Public License v3)
+  https://www.psycopg.org
+* pydantic-settings (MIT License)
+  https://github.com/pydantic/pydantic-settings
+* redis-py (MIT License)
+  https://github.com/redis/redis-py
+* Dramatiq (GNU Lesser General Public License v3)
+  https://github.com/Bogdanp/dramatiq
+* PyJWT (MIT License)
+  https://github.com/jpadilla/pyjwt
+* HTTPX (BSD-3-Clause License)
+  https://www.python-httpx.org
+* FastAPI (MIT License)
+  https://fastapi.tiangolo.com
+* Uvicorn (BSD-3-Clause License)
+  https://www.uvicorn.org

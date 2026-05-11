@@ -5,7 +5,7 @@ This is the five-minute tutorial. By the end you will:
 1. Install `reviewgate-core` locally and run the deterministic engine
    on a fixture pull request.
 2. Wire the open-source `reviewgate-action` into your repository's CI
-   so it analyses every PR.
+   so it analyses every PR and owns Action-side enforcement.
 3. Tune `.reviewgate.yml` for your project and (optionally) make
    ReviewGate a required status check.
 
@@ -29,7 +29,7 @@ instead. For the full design, see [`docs/DESIGN.md`](DESIGN.md).
 ```bash
 python -m venv .venv
 source .venv/bin/activate
-pip install -e ".[dev]"     # from a clone of leo-aa88/reviewgate
+pip install -e ".[dev]"     # core + Action development from a clone
 # or, once published:
 # pip install reviewgate
 ```
@@ -117,12 +117,14 @@ jobs:
       pull-requests: write   # `read` is enough if you set post-comment: false
     steps:
       - uses: actions/checkout@v4
-      - uses: leo-aa88/reviewgate/src/reviewgate_action@v1
+      # Pre-release docs use @main until the first public tag is cut.
+      # After v0.1.0, pin a release tag instead.
+      - uses: leo-aa88/reviewgate/src/reviewgate_action@main
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           fail-on: FAIL          # never | PASS | WARN | FAIL
           post-comment: true     # honoured only when §14.1 coexistence allows
-          mode: auto             # auto | action | quiet
+          mode: action           # action owns comments + fail-on for this tutorial
 ```
 
 Open a PR. Within a minute you should see:
@@ -139,7 +141,7 @@ verdict into downstream steps:
 
 ```yaml
 - id: rg
-  uses: leo-aa88/reviewgate/src/reviewgate_action@v1
+  uses: leo-aa88/reviewgate/src/reviewgate_action@main
   with:
     github-token: ${{ secrets.GITHUB_TOKEN }}
     fail-on: never               # let the next step decide
@@ -167,11 +169,11 @@ recommended starter:
 ```yaml
 version: 1
 
-# §14.1 coexistence with the hosted ReviewGate App. `app` (default)
-# means the hosted App posts and the open-source Action stays quiet
-# on the PR surface; `action` flips it; `both` lets each surface post
-# its own marker comment.
-mode: app
+# §14.1 coexistence with the hosted ReviewGate App. Use `action` for
+# this Action-only quickstart so `mode: auto` workflows do not stay
+# quiet. Hosted-App beta repos normally use `app`; `both` lets both
+# surfaces post their own marker comment.
+mode: action
 
 # §10.3 thresholds — lower for stricter gating, raise for monorepos
 # with intentionally large PRs. The defaults match docs/DESIGN.md
@@ -268,6 +270,11 @@ Push another commit (or edit the PR body). The Action reruns
 automatically and updates the existing comment in place — the marker
 keeps the upsert stable.
 
+> If you later install the hosted App on the same repository, change
+> `.reviewgate.yml` back to `mode: app` (or omit the key) and leave the
+> workflow input at `mode: auto` so the Action becomes log-only while
+> the App owns comments, labels, and the status check.
+
 ---
 
 ## 6. Hosted app (dev): Dramatiq worker (Redis)
@@ -294,10 +301,9 @@ reviewgate-worker
 python -m dramatiq reviewgate.app.analysis.worker_app
 ```
 
-The worker loads ``reviewgate.app.analysis.worker_app``, which installs the
-broker from ``AppSettings`` and imports stub actors from
-``reviewgate.app.analysis.jobs`` until issue #50 replaces them with the real
-pipeline.
+The worker loads ``reviewgate.app.analysis.worker_app``, installs the
+broker from ``AppSettings``, and imports the hosted analysis actors in
+``reviewgate.app.analysis.jobs``.
 
 In a **third terminal** (same venv; no extra env vars required for the default
 ``GET /health`` probe):

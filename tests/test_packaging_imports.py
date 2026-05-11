@@ -1,6 +1,6 @@
 """Smoke tests for distribution layout (PEP 517 / editable installs).
 
-CI runs ``pip install -e ".[dev]"`` before ``pytest``; ``pythonpath`` in
+CI runs ``pip install -e ".[dev,app]"`` before ``pytest``; ``pythonpath`` in
 ``pyproject.toml`` must not prepend ``src/``, or imports would bypass the
 installed layout. These tests fail fast when the Action runtime is not
 importable as a real top-level package.

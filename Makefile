@@ -47,7 +47,7 @@ test: ## Run the full pytest suite (requires install-dev).
 test-verbose: ## Run pytest with high verbosity.
 	$(PY) -m pytest -vv
 
-lint: ## Ruff check on src/ and tests/ (install: pip install ruff).
+lint: ## Ruff check on src/ and tests/ (installed by install-dev).
 	@$(PY) -m ruff --version >/dev/null 2>&1 || ( \
 		echo "ruff is not installed. Install with: pip install ruff"; exit 1)
 	$(PY) -m ruff check src tests
@@ -55,7 +55,7 @@ lint: ## Ruff check on src/ and tests/ (install: pip install ruff).
 fmt: ## Alias for `make format`.
 	@$(MAKE) format
 
-format: ## Ruff format src/ and tests/ (install: pip install ruff).
+format: ## Ruff format src/ and tests/ (installed by install-dev).
 	@$(PY) -m ruff --version >/dev/null 2>&1 || ( \
 		echo "ruff is not installed. Install with: pip install ruff"; exit 1)
 	$(PY) -m ruff format src tests

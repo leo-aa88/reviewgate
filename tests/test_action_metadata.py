@@ -248,7 +248,7 @@ def test_top_level_readme_includes_design_doc_snippet() -> None:
     """
 
     readme = _TOP_README.read_text(encoding="utf-8")
-    assert "leo-aa88/reviewgate/src/reviewgate_action@v1" in readme, (
+    assert "leo-aa88/reviewgate/src/reviewgate_action@main" in readme, (
         "Top-level README must reference the Action at its subdirectory "
         "consumer path (DESIGN.md §14, GitHub Actions "
         "{owner}/{repo}/{path}@{ref} form)"

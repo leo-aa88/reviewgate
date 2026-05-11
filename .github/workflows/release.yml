@@ -26,8 +26,8 @@ jobs:
           cache: pip
           cache-dependency-path: pyproject.toml
 
-      - name: Install package and test tools
-        run: pip install -e ".[dev]"
+      - name: Install package, test tools, and app extras
+        run: pip install -e ".[dev,app]"
 
       - name: Run tests
         run: pytest -q
@@ -47,8 +47,8 @@ jobs:
           cache: pip
           cache-dependency-path: pyproject.toml
 
-      - name: Install build backend
-        run: pip install --upgrade build
+      - name: Install build and verification tools
+        run: pip install --upgrade build twine
 
       - name: Verify tag matches pyproject.toml version
         if: github.event_name == 'push'
@@ -66,6 +66,33 @@ jobs:
 
       - name: Build sdist + wheel
         run: python -m build
+
+      - name: Verify distributions
+        run: python -m twine check dist/*
+
+      - name: Smoke installed wheel
+        run: |
+          set -euo pipefail
+          python -m venv /tmp/reviewgate-wheel-smoke
+          wheel="$(python - <<'PY'
+          import pathlib
+
+          wheels = sorted(pathlib.Path("dist").glob("reviewgate-*.whl"))
+          if len(wheels) != 1:
+              raise SystemExit(f"expected exactly one wheel, found {len(wheels)}")
+          print(wheels[0])
+          PY
+          )"
+          /tmp/reviewgate-wheel-smoke/bin/python -m pip install --upgrade pip
+          /tmp/reviewgate-wheel-smoke/bin/python -m pip install "${wheel}[app]"
+          /tmp/reviewgate-wheel-smoke/bin/reviewgate-core --help
+          /tmp/reviewgate-wheel-smoke/bin/python - <<'PY'
+          import importlib.util
+
+          for module in ("reviewgate", "reviewgate.app", "reviewgate_action"):
+              if importlib.util.find_spec(module) is None:
+                  raise SystemExit(f"missing import spec for {module}")
+          PY
 
       - name: Upload distributions
         uses: actions/upload-artifact@v7

@@ -173,7 +173,7 @@ jobs:
       - uses: actions/checkout@v4
       # Pre-release docs use @main until the first public tag is cut.
       # After v0.1.0, pin a release tag instead.
-      - uses: leo-aa88/reviewgate/src/reviewgate_action@main
+      - uses: leo-aa88/reviewgate@main
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           fail-on: FAIL          # never | PASS | WARN | FAIL (default: FAIL)

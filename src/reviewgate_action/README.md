@@ -25,6 +25,10 @@ python -m reviewgate_action.run_core --input engine.json --workspace . \
 
 ## Usage
 
+The root [`action.yml`](../../action.yml) is the canonical public Action
+entry point. The subdirectory `action.yml` is kept for compatibility while
+this monorepo is still in beta.
+
 The §14 reference workflow:
 
 ```yaml
@@ -44,7 +48,7 @@ jobs:
       - uses: actions/checkout@v4
       # Pre-release docs use @main until the first public tag is cut.
       # After v0.1.0, pin a release tag instead.
-      - uses: leo-aa88/reviewgate/src/reviewgate_action@main
+      - uses: leo-aa88/reviewgate@main
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           fail-on: FAIL
@@ -52,8 +56,7 @@ jobs:
           mode: action
 ```
 
-> **`uses:` path syntax.** GitHub Actions resolves `{owner}/{repo}/{path}@{ref}` as the subdirectory action at `{path}/action.yml` in `{owner}/{repo}`. This Action's `action.yml` lives at [`src/reviewgate_action/action.yml`](action.yml) in [`leo-aa88/reviewgate`](https://github.com/leo-aa88/reviewgate), so `leo-aa88/reviewgate/src/reviewgate_action@main` is the documented pre-release subdirectory reference. After the first public release, pin the release tag instead of `@main`. See GitHub's "Using actions" docs ("Referencing an action in the same repository where a workflow file uses the action" and "Referencing an action in a different repository") for the spec.
-> When this monorepo is split per `docs/DESIGN.md` §14 ("Repository: `github.com/reviewgate/reviewgate-action`"), consumers will reference that repository at a release tag (for example `reviewgate/reviewgate-action@v0.1.0`) instead -- the `<path>` segment simply collapses out and the input contract stays identical.
+> **Release refs.** Pre-release docs use `leo-aa88/reviewgate@main` until the first public tag is cut. After `v0.1.0`, consumers should pin the release tag (for example `leo-aa88/reviewgate@v0.1.0`). When this monorepo is split per `docs/DESIGN.md` §14 ("Repository: `github.com/reviewgate/reviewgate-action`"), consumers will reference that repository at a release tag instead and the input contract stays identical.
 
 ## Inputs
 

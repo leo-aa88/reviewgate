@@ -125,7 +125,7 @@ jobs:
       - uses: actions/checkout@v4
       # Pre-release docs use @main until the first public tag is cut.
       # After v0.1.0, pin a release tag instead.
-      - uses: leo-aa88/reviewgate/src/reviewgate_action@main
+      - uses: leo-aa88/reviewgate@main
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           fail-on: FAIL
@@ -304,7 +304,7 @@ jobs:
       pull-requests: write
     steps:
       - uses: actions/checkout@v4
-      - uses: leo-aa88/reviewgate/src/reviewgate_action@main
+      - uses: leo-aa88/reviewgate@main
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           fail-on: FAIL
@@ -469,6 +469,7 @@ pollute the repository; generate one locally if you use uv.
 
 ```text
 reviewgate/
+├── action.yml                    # canonical public GitHub Action entry point
 ├── src/
 │   ├── reviewgate/             # PyPI `reviewgate` top-level package
 │   │   ├── __init__.py
@@ -487,7 +488,7 @@ reviewgate/
 │   │   ├── paths.py            # gitignore-style matcher
 │   │   └── cli.py              # `reviewgate-core` console script
 │   └── reviewgate_action/      # GitHub Action wrapper (§14)
-│       ├── action.yml          # composite action contract
+│       ├── action.yml          # legacy alpha subdirectory action path
 │       ├── README.md
 │       └── reviewgate_action/  # Python package (import ``reviewgate_action``)
 │           ├── fetch_pr.py     # PR + paginated files fetch

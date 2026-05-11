@@ -213,3 +213,24 @@ def mark_analysis_failed(
     row.error_code = error_code.strip()
     row.completed_at = datetime.now(tz=UTC)
     row.reviewability = None
+
+
+def completed_analysis_exists_for_key(
+    session: "Session",
+    key: AnalysisNaturalKey,
+) -> bool:
+    """Return ``True`` when a terminal ``completed`` row exists for the key (§13.7)."""
+
+    stmt = (
+        select(Analysis.id)
+        .where(
+            Analysis.repository_id == key.repository_id,
+            Analysis.pull_number == key.pull_number,
+            Analysis.head_sha == key.head_sha,
+            Analysis.config_hash == key.config_hash,
+            Analysis.pr_metadata_hash == key.pr_metadata_hash,
+            Analysis.status == ANALYSIS_STATUS_COMPLETED,
+        )
+        .limit(1)
+    )
+    return session.execute(stmt).scalar_one_or_none() is not None

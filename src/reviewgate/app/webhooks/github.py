@@ -13,8 +13,9 @@ The actor module is imported only on the enqueue path after
 Delivery dedupe persists ``X-GitHub-Delivery`` to ``webhook_deliveries``; the
 pull-request enqueue path requires ``REVIEWGATE_DATABASE_URL`` and
 ``REVIEWGATE_REDIS_URL`` (issue #34). Rapid ``synchronize`` bursts coalesce via
-Redis ``SET … NX EX`` (``docs/DESIGN.md`` §13.7, issue #45). Payload persistence
-for analyses is handled in later issues (#50).
+Redis ``SET … NX EX`` (``docs/DESIGN.md`` §13.7, issue #45). Enqueue-time dedupe
+against ``completed`` ``analyses`` rows (§13.7 #2, issue #47) runs before
+``Actor.send``. Payload persistence for analyses is handled in later issues (#50).
 """
 
 from __future__ import annotations
@@ -36,6 +37,9 @@ from reviewgate.app.analysis.synchronize_debounce import (
 )
 from reviewgate.app.settings import AppSettings
 from reviewgate.app.webhooks.dedupe import claim_github_webhook_delivery
+from reviewgate.app.webhooks.enqueue_analysis_dedupe import (
+    evaluate_pull_request_enqueue_dedupe,
+)
 from reviewgate.app.webhooks.enqueue_policy import pull_request_may_enqueue
 from reviewgate.app.webhooks.installation_persist import persist_installation_webhook_payload
 
@@ -294,6 +298,21 @@ async def github_webhook(request: Request) -> Response:
     if not debounce_allows:
         return Response(status_code=status.HTTP_202_ACCEPTED)
 
+    try:
+        skip_completed, reviewgate_fields = await run_in_threadpool(
+            evaluate_pull_request_enqueue_dedupe,
+            settings,
+            payload_obj,
+        )
+    except OperationalError as exc:
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Temporary database error while checking completed analyses",
+        ) from exc
+
+    if skip_completed:
+        return Response(status_code=status.HTTP_202_ACCEPTED)
+
     install_redis_broker(settings)
 
     from reviewgate.app.analysis.jobs import run_pr_analysis_stub
@@ -316,6 +335,8 @@ async def github_webhook(request: Request) -> Response:
         ):
             envelope["github_installation_id"] = raw_i
             envelope["github_repository_id"] = raw_r
+
+    envelope.update(reviewgate_fields)
 
     run_pr_analysis_stub.send(envelope)
 

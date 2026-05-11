@@ -26,10 +26,12 @@ Example:
 
 from __future__ import annotations
 
+from contextlib import nullcontext
 from typing import Final
 
 import dramatiq
 
+from reviewgate.app.analysis.worker_job_lock import worker_job_lock_hold
 from reviewgate.app.settings import AppSettings
 from reviewgate.app.storage.db import create_engine_from_settings, create_session_factory
 from reviewgate.app.storage.repositories import (
@@ -86,6 +88,17 @@ def run_pr_analysis_stub(payload: dict[str, object]) -> None:
         del payload
         return
 
+    # ``docs/DESIGN.md`` §13.7 ordering (issue #47): mechanism #1 (delivery dedupe)
+    # runs in the HTTP handler before enqueue; mechanism #2 (skip vs completed
+    # ``analyses``) also runs there; mechanism #3 (Redis worker lock) wraps the
+    # Postgres lifecycle after the installation guard (issue #36) so soft-deleted
+    # installs still short-circuit before Redis.
+    lock_ctx = (
+        worker_job_lock_hold(str(settings.redis_url), natural)
+        if natural is not None and settings.redis_url is not None
+        else nullcontext(True)
+    )
+
     session_factory = create_session_factory(engine)
     with session_factory() as session:
         if need_installation_guard:
@@ -96,15 +109,26 @@ def run_pr_analysis_stub(payload: dict[str, object]) -> None:
             ):
                 return
 
-        if natural is not None:
-            analysis_id, begin_kind = begin_analysis_for_job_start(session, natural)
-            if begin_kind not in ("already_completed", "already_running"):
-                mark_analysis_completed(
+        with lock_ctx as lock_acquired:
+            if (
+                natural is not None
+                and settings.redis_url is not None
+                and not lock_acquired
+            ):
+                return
+
+            if natural is not None:
+                analysis_id, begin_kind = begin_analysis_for_job_start(
                     session,
-                    analysis_id,
-                    reviewability="PASS",
+                    natural,
                 )
-        session.commit()
+                if begin_kind not in ("already_completed", "already_running"):
+                    mark_analysis_completed(
+                        session,
+                        analysis_id,
+                        reviewability="PASS",
+                    )
+            session.commit()
 
     del payload
 

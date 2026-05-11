@@ -8,9 +8,10 @@ skip work without touching Postgres (degraded, safe behavior).
 When Redis is unavailable or counters cannot be updated, the limiter fails open
 with ``ok`` so production is not hard-blocked by transient cache outages.
 
-If the installation counter was incremented and the repository step then fails
-or exceeds its cap, the installation increment is rolled back so rejected jobs
-do not permanently consume installation quota (PR #114 review).
+If the installation counter was incremented and the repository step then fails,
+exceeds its cap, or the installation cap is already exceeded for this call, the
+installation increment is rolled back so rejected jobs do not permanently
+consume installation quota (PR #114 review).
 """
 
 from __future__ import annotations
@@ -62,7 +63,11 @@ def _touch_counter_ttl(client: object, key: str) -> None:
 
 
 def _rollback_installation_counter(client: object, inst_key: str) -> None:
-    """Undo one installation ``INCR`` when the repository leg did not commit."""
+    """Undo one installation ``INCR`` when this request must not consume quota.
+
+    Used when the installation cap is exceeded, the repository leg fails or is
+    over cap, or Redis errors occur after the installation counter was bumped.
+    """
 
     try:
         client.decr(inst_key)
@@ -82,9 +87,10 @@ def check_analysis_rate_limits(
 ) -> AnalysisRateLimitOutcome:
     """Increment daily counters and report whether limits allow work.
 
-    The installation counter is incremented first. If the repository counter
-    cannot be updated or is over its daily cap, the installation increment for
-    this call is rolled back so skipped analyses do not leak installation quota.
+    The installation counter is incremented first. If the installation cap is
+    exceeded, if the repository counter cannot be updated, or if it is over its
+    daily cap, the installation increment for this call is rolled back so
+    rejected or skipped analyses do not leak installation quota.
     """
 
     if github_installation_id < 1 or github_repository_id < 1:
@@ -109,6 +115,7 @@ def check_analysis_rate_limits(
                 github_installation_id,
                 _MAX_ANALYSES_PER_INSTALLATION_PER_DAY,
             )
+            _rollback_installation_counter(client, inst_key)
             return "installation_exceeded"
 
         repo_raw = client.incr(repo_key)

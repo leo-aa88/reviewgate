@@ -45,7 +45,7 @@ def test_installation_cap_returns_first(monkeypatch: pytest.MonkeyPatch) -> None
     """Installation counter over §22.2 default yields ``installation_exceeded``."""
 
     client = MagicMock()
-    client.incr.side_effect = [501, 1]
+    client.incr.side_effect = [501]
     client.decr = MagicMock()
     client.close = MagicMock()
 
@@ -64,7 +64,7 @@ def test_installation_cap_returns_first(monkeypatch: pytest.MonkeyPatch) -> None
         == "installation_exceeded"
     )
     client.incr.assert_called_once()
-    client.decr.assert_not_called()
+    client.decr.assert_called_once()
 
 
 def test_repository_cap_rolls_back_installation_increment(

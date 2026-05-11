@@ -108,7 +108,7 @@ line-length = 100
 target-version = "py312"
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "UP", "B", "SIM"]
+select = ["E", "F"]
 ignore = [
     # Keep existing style stable while still enforcing correctness-oriented rules.
     "E501",

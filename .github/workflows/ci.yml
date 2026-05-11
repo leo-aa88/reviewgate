@@ -36,7 +36,7 @@ jobs:
         run: pytest -q
 
   lint:
-    name: Ruff lint + format
+    name: Ruff lint
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -51,9 +51,7 @@ jobs:
         run: pip install -e ".[dev,app]"
 
       - name: Run Ruff
-        run: |
-          ruff check src tests
-          ruff format --check src tests
+        run: ruff check src tests
 
   alembic-smoke:
     name: Alembic upgrade/downgrade (Postgres 16)

@@ -9,6 +9,7 @@
 
 PY ?= python3
 PIP ?= $(PY) -m pip
+RUFF ?= $(shell command -v ruff 2>/dev/null || command -v uvx 2>/dev/null | sed 's|$$| ruff|')
 IMAGE ?= reviewgate:local
 DOCKER ?= docker
 VENV ?= .venv
@@ -48,17 +49,17 @@ test-verbose: ## Run pytest with high verbosity.
 	$(PY) -m pytest -vv
 
 lint: ## Ruff check on src/ and tests/ (installed by install-dev).
-	@$(PY) -m ruff --version >/dev/null 2>&1 || ( \
+	@test -n "$(RUFF)" || ( \
 		echo "ruff is not installed. Install with: pip install ruff"; exit 1)
-	$(PY) -m ruff check src tests
+	$(RUFF) check src tests
 
 fmt: ## Alias for `make format`.
 	@$(MAKE) format
 
 format: ## Ruff format src/ and tests/ (installed by install-dev).
-	@$(PY) -m ruff --version >/dev/null 2>&1 || ( \
+	@test -n "$(RUFF)" || ( \
 		echo "ruff is not installed. Install with: pip install ruff"; exit 1)
-	$(PY) -m ruff format src tests
+	$(RUFF) format src tests
 
 build: ## Build sdist and wheel into dist/ (installs build tool if needed).
 	$(PY) -m pip install -q build

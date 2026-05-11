@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import logging
 from dataclasses import dataclass
-from typing import Any, Final
+from typing import Final
 
 from pydantic import ValidationError
 

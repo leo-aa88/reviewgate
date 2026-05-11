@@ -15,8 +15,6 @@ from __future__ import annotations
 
 from typing import Final
 
-import pytest
-
 from reviewgate.core.engine import analyze
 from reviewgate.core.schemas import (
     ChangedFile,

@@ -5,8 +5,6 @@ from __future__ import annotations
 import uuid
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from reviewgate.app.analysis.worker_job_lock import worker_job_lock_hold
 from reviewgate.app.storage.repositories import AnalysisNaturalKey
 

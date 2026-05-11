@@ -14,8 +14,6 @@ pytest.importorskip("sqlalchemy")
 
 from reviewgate.app.storage.models import Analysis, Installation, Repository
 from reviewgate.app.storage.repositories import (
-    ANALYSIS_STATUS_COMPLETED,
-    ANALYSIS_STATUS_FAILED,
     ANALYSIS_STATUS_RUNNING,
     AnalysisNaturalKey,
     begin_analysis_for_job_start,

@@ -603,7 +603,7 @@ pytest
 Equivalent shortcuts: `make venv` then activate, `make install-dev`, and
 `make test`. See [Makefile (local development)](#makefile-local-development).
 
-CI runs ``pytest`` on Python **3.12** and **3.13**, Ruff lint/format checks,
+CI runs ``pytest`` on Python **3.12** and **3.13**, Ruff lint checks,
 Alembic upgrade/downgrade smoke tests, and package build verification (see
 the matrix in [`.github/workflows/ci.yml`](.github/workflows/ci.yml)). This repo
 also includes

@@ -35,6 +35,7 @@ from typing import Any, Final
 import pytest
 
 from reviewgate.core.config import CONFIG_WARNING_CODE
+from reviewgate.core.schemas import Reviewability
 from reviewgate_action import run_core
 
 
@@ -303,9 +304,6 @@ def test_absolute_config_file_overrides_workspace(
 
 
 # --- fail-on policy --------------------------------------------------
-
-
-from reviewgate.core.schemas import Reviewability
 
 
 @pytest.mark.parametrize(

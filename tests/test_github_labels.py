@@ -176,6 +176,31 @@ def test_ensure_label_create_422_is_treated_as_race() -> None:
         )
 
 
+def test_sync_delete_404_is_race_tolerant() -> None:
+    """Stale list + concurrent remover can yield DELETE 404; sync must succeed."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "GET" and "/issues/4/labels" in request.url.path:
+            return httpx.Response(200, json=[{"name": "reviewability-warn"}])
+        if request.method == "DELETE":
+            return httpx.Response(404, json={"message": "Label does not exist"})
+        if request.method == "POST":
+            return httpx.Response(200, json={"labels": ["reviewability-pass"]})
+        return httpx.Response(400, json={"message": "unexpected"})
+
+    transport = httpx.MockTransport(handler)
+    with httpx.Client(transport=transport) as client:
+        sync_reviewgate_labels_on_issue(
+            _TOKEN,
+            owner="acme",
+            repo="demo",
+            issue_number=4,
+            desired_labels=["reviewability-pass"],
+            labels_config=Labels(),
+            http_client=client,
+        )
+
+
 def test_list_issue_labels_404_raises() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(404, json={"message": "nope"})

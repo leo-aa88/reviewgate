@@ -297,6 +297,12 @@ def _remove_issue_label(
             retriable=True,
             request_id=None,
         ) from exc
+    if response.status_code == httpx.codes.NOT_FOUND:
+        logger.info(
+            "github_remove_label_already_absent",
+            extra={"label": label_name, "issue_number": issue_number},
+        )
+        return
     _raise_for_github_response(operation="remove_issue_label", response=response)
 
 

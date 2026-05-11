@@ -6,7 +6,7 @@
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-blue.svg)](https://www.python.org/downloads/)
 [![Code style: ruff](https://img.shields.io/badge/code%20style-ruff-000000.svg)](https://github.com/astral-sh/ruff)
-[![Tests: 671 passing](https://img.shields.io/badge/tests-671%20passing-brightgreen.svg)](#testing)
+[![Tests: 890+ passing](https://img.shields.io/badge/tests-890%2B%20passing-brightgreen.svg)](#testing)
 [![Status: beta](https://img.shields.io/badge/status-beta-orange.svg)](#status)
 [![Conventional Commits](https://img.shields.io/badge/Conventional%20Commits-1.0.0-yellow.svg)](https://www.conventionalcommits.org)
 
@@ -46,6 +46,8 @@ as a proprietary split. See [`docs/DESIGN.md` §19](docs/DESIGN.md).
 - [GitHub Action](#github-action)
 - [CLI usage](#cli-usage)
 - [Onboarding](#onboarding)
+- [Docker image](#docker-image)
+- [Makefile (local development)](#makefile-local-development)
 - [Project layout](#project-layout)
 - [Status](#status)
 - [Roadmap](#roadmap)
@@ -360,6 +362,96 @@ repo" to "merging on a green ReviewGate verdict", read
 
 ---
 
+## Docker image
+
+The [`Dockerfile`](Dockerfile) packages the **hosted app** path: `reviewgate-api`
+(FastAPI + uvicorn) and `reviewgate-worker` (Dramatiq), with optional extras from
+`pyproject.toml`’s `[app]` group (PostgreSQL, Redis, Alembic, etc.). The
+deterministic engine alone does not require this image; for local fixture runs
+use `pip install reviewgate` / `reviewgate-core` as described in [CLI usage](#cli-usage).
+
+**Build** (from the repository root):
+
+```bash
+docker build -t reviewgate:local .
+```
+
+Or: `make docker-build` (image name defaults to `reviewgate:local`; override with
+`make docker-build IMAGE=myregistry/reviewgate:dev`).
+
+**Run the HTTP API** on port 8000 (bind address is `0.0.0.0` inside the
+container). Configure the process via `REVIEWGATE_*` environment variables
+(see [`src/reviewgate/app/settings.py`](src/reviewgate/app/settings.py)).
+Typical values for a real deployment include:
+
+* `REVIEWGATE_DATABASE_URL` — PostgreSQL DSN for SQLAlchemy (same variable
+  Alembic uses for migrations).
+* `REVIEWGATE_REDIS_URL` — Redis for Dramatiq and related features.
+* `REVIEWGATE_HTTP_PORT` — listening port (default `8000`; the image `EXPOSE`s
+  8000).
+
+Example (placeholders only):
+
+```bash
+docker run --rm -p 8000:8000 \
+  -e REVIEWGATE_DATABASE_URL='postgresql+psycopg://user:pass@host:5432/db' \
+  -e REVIEWGATE_REDIS_URL='redis://host:6379/0' \
+  reviewgate:local
+```
+
+`make docker-run-api` runs the same shape but passes through `REVIEWGATE_DATABASE_URL`
+and `REVIEWGATE_REDIS_URL` from your shell if they are already exported.
+
+**Run the worker** by overriding the container command (the default `CMD` is
+`reviewgate-api`):
+
+```bash
+docker run --rm \
+  -e REVIEWGATE_REDIS_URL='redis://host:6379/0' \
+  -e REVIEWGATE_DATABASE_URL='postgresql+psycopg://…' \
+  reviewgate:local reviewgate-worker
+```
+
+Or: `make docker-run-worker` (expects those variables in your environment).
+
+**Migrations** are not run automatically at container start. Apply them with
+Alembic using the same `REVIEWGATE_DATABASE_URL`, for example from a one-off
+container:
+
+```bash
+docker run --rm \
+  -e REVIEWGATE_DATABASE_URL='postgresql+psycopg://…' \
+  reviewgate:local python -m alembic upgrade head
+```
+
+The build context is trimmed by [`.dockerignore`](.dockerignore) (tests, docs,
+virtualenvs, and caches are omitted). The image runs as a non-root `reviewgate`
+user (UID 1000).
+
+---
+
+## Makefile (local development)
+
+The [`Makefile`](Makefile) documents itself: run **`make help`** (or plain
+`make`) to list targets and short descriptions.
+
+Common workflows:
+
+| Target | Purpose |
+| ------ | ------- |
+| `make install-dev` | Editable install with `[dev,app]` extras (matches CI). |
+| `make test` | Full `pytest` suite. |
+| `make check` | Tests plus Ruff lint (install Ruff separately: `pip install ruff`). |
+| `make format` | Ruff format on `src/` and `tests/`. |
+| `make docker-build` | Build the Docker image (`IMAGE=…` to tag). |
+| `make alembic-upgrade` | `alembic upgrade head` (requires `REVIEWGATE_DATABASE_URL`). |
+
+`make lock-uv` / `make sync-uv` are optional helpers for [uv](https://docs.astral.sh/uv/).
+`uv.lock` is listed in [`.gitignore`](.gitignore) so local lockfiles do not
+pollute the repository; generate one locally if you use uv.
+
+---
+
 ## Project layout
 
 ```text
@@ -389,7 +481,7 @@ reviewgate/
 │           ├── run_core.py     # config + engine + fail-on + comment
 │           ├── coexistence.py  # §14.1 mode resolver
 │           └── post_comment.py # §13 marker-comment upsert
-├── tests/                       # 671 unit + integration tests
+├── tests/                       # pytest suite (890+ passed; see CI matrix)
 │   ├── fixtures/m2_golden/     # 14 §24.2 golden PR fixtures
 │   ├── test_core_purity.py     # §4.1 boundary enforcement (AST scan)
 │   └── …
@@ -405,6 +497,9 @@ reviewgate/
 ├── CHANGELOG.md
 ├── CODE_OF_CONDUCT.md
 ├── CONTRIBUTING.md
+├── Dockerfile                  # hosted app image (API + worker)
+├── Makefile                    # local dev, tests, Docker, optional uv
+├── .dockerignore
 ├── LICENSE                      # Apache 2.0
 ├── NOTICE
 ├── README.md
@@ -419,7 +514,7 @@ reviewgate/
 
 * **`reviewgate-core` (deterministic engine):** runtime complete.
   All §10 heuristics from `docs/DESIGN.md` are implemented and
-  covered by 671 passing tests on Python 3.12 and 3.13 (see CI matrix).
+  covered by 890+ passing tests on Python 3.12 and 3.13 (see CI matrix).
 * **`reviewgate-action` (GitHub Action):** runtime complete (issues
   #24, #25, #26 landed). Fetches PR metadata, loads `.reviewgate.yml`,
   runs the engine, applies the §14 `fail-on` policy, and (when §14.1
@@ -487,6 +582,9 @@ source .venv/bin/activate
 pip install -e ".[dev]"
 pytest
 ```
+
+Equivalent shortcuts: `make venv` then activate, `make install-dev`, and
+`make test`. See [Makefile (local development)](#makefile-local-development).
 
 CI runs the same ``pytest`` job on Python **3.12** and **3.13** (see the
 matrix in [`.github/workflows/ci.yml`](.github/workflows/ci.yml)). This repo

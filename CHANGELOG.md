@@ -12,6 +12,10 @@ should be considered stable but subject to additive change.
 
 ### Added
 
+- **OSS polish (issue #126):** [`GOVERNANCE.md`](GOVERNANCE.md); canonical
+  hosted-stack local guide [`docs/HOSTED_LOCAL.md`](docs/HOSTED_LOCAL.md) with
+  README cross-links (including Dependabot, already configured in
+  [`.github/dependabot.yml`](.github/dependabot.yml)).
 - **DESIGN.md §12 / issue #124 alignment:** `ignored_paths` filtering in the
   deterministic engine; warn-tier counts for risky / dependency / config file
   volumes; `missing_tests_for_source` heuristic (skipped for very large diffs

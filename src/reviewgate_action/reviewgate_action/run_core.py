@@ -14,11 +14,11 @@ Pipeline this module owns:
    input's ``config`` block (as JSON) so the engine sees the same
    effective configuration the Action loaded.
 4. Call :func:`reviewgate.core.engine.analyze`.
-5. Print a human-readable summary (verdict, warning ladder, suggested
-   labels, file-category counts) to stderr **and** to
-   ``$GITHUB_STEP_SUMMARY`` when set, plus the full §10.2 JSON
-   report to stdout. The split keeps stdout machine-parseable for
-   downstream Action steps while the human summary lights up the
+5. Print a human-readable summary via :mod:`reviewgate_action.summary`
+   (verdict, warning ladder, suggested labels, file-category counts) to
+   stderr **and** to ``$GITHUB_STEP_SUMMARY`` when set, plus the full
+   §10.2 JSON report to stdout. The split keeps stdout machine-parseable
+   for downstream Action steps while the human summary lights up the
    workflow log.
 6. Apply the §14 ``fail-on`` policy: exit 0 when the verdict is
    below the threshold, exit 1 when the verdict reaches it. The
@@ -51,7 +51,13 @@ from reviewgate.core.schemas import (
 )
 from reviewgate_action import coexistence, post_comment
 
+from .summary import PR_AUTHOR_KIND_LABELS, STAT_LABEL_HUMAN_LOC, render_summary
+
 _PROG: Final[str] = "reviewgate-action.run_core"
+
+# Backward-compatible aliases for tests that pin ``run_core`` symbols.
+_SUMMARY_STAT_LABEL_HUMAN_LOC = STAT_LABEL_HUMAN_LOC
+_SUMMARY_PR_AUTHOR_KIND_LABEL = PR_AUTHOR_KIND_LABELS
 
 _EXIT_OK: Final[int] = 0
 _EXIT_FAIL_ON: Final[int] = 1
@@ -227,25 +233,18 @@ def _read_engine_input(path: Path) -> EngineInput:
     try:
         raw = path.read_text(encoding="utf-8")
     except FileNotFoundError as exc:
-        raise RuntimeError(
-            f"engine input file not found: {path}"
-        ) from exc
+        raise RuntimeError(f"engine input file not found: {path}") from exc
     except OSError as exc:
-        raise RuntimeError(
-            f"could not read engine input file {path}: {exc}"
-        ) from exc
+        raise RuntimeError(f"could not read engine input file {path}: {exc}") from exc
 
     try:
         payload = json.loads(raw)
     except json.JSONDecodeError as exc:
-        raise RuntimeError(
-            f"engine input at {path} is not valid JSON: {exc}"
-        ) from exc
+        raise RuntimeError(f"engine input at {path} is not valid JSON: {exc}") from exc
 
     if not isinstance(payload, dict):
         raise RuntimeError(
-            f"engine input at {path} must be a JSON object; got "
-            f"{type(payload).__name__}"
+            f"engine input at {path} must be a JSON object; got {type(payload).__name__}"
         )
 
     return _validated_engine_input(payload)
@@ -255,9 +254,7 @@ def _validated_engine_input(payload: dict[str, Any]) -> EngineInput:
     try:
         return EngineInput.model_validate(payload)
     except ValidationError as exc:
-        raise RuntimeError(
-            f"engine input does not match §10.1 EngineInput schema:\n{exc}"
-        ) from exc
+        raise RuntimeError(f"engine input does not match §10.1 EngineInput schema:\n{exc}") from exc
 
 
 def _merge_loaded_config(
@@ -298,78 +295,7 @@ def _prepend_config_warnings(
 
     if not warnings:
         return report
-    return report.model_copy(
-        update={"warnings": list(warnings) + list(report.warnings)}
-    )
-
-
-# --- summary rendering ----------------------------------------------
-
-
-_VERDICT_GLYPH: Final[dict[Reviewability, str]] = {
-    "PASS": "[PASS]",
-    "WARN": "[WARN]",
-    "FAIL": "[FAIL]",
-}
-
-
-def render_summary(report: ReviewabilityReport) -> str:
-    """Render a Markdown-flavoured human summary of ``report``.
-
-    The output is consumed by:
-
-    * the workflow log (we write it to stderr so stdout stays
-      reserved for the JSON document); and
-    * `$GITHUB_STEP_SUMMARY`, where Markdown renders into the
-      "Summary" panel for each job.
-
-    Kept in its own helper so tests can assert against the exact
-    rendering without re-running the whole pipeline.
-    """
-
-    lines: list[str] = []
-    glyph = _VERDICT_GLYPH[report.reviewability]
-    lines.append(f"## ReviewGate {glyph} `{report.reviewability}`")
-    lines.append("")
-
-    stats = report.stats
-    files_changed = stats.get("files_changed")
-    raw_loc = stats.get("raw_loc_changed")
-    human_loc = stats.get("human_loc_changed")
-    if any(v is not None for v in (files_changed, raw_loc, human_loc)):
-        lines.append("**Stats**")
-        lines.append("")
-        lines.append(f"- Files changed: `{files_changed}`")
-        lines.append(f"- Raw LOC changed: `{raw_loc}`")
-        lines.append(f"- Human-authored LOC: `{human_loc}`")
-        lines.append("")
-
-    if report.warnings:
-        lines.append(f"**Warnings ({len(report.warnings)})**")
-        lines.append("")
-        for warning in report.warnings:
-            lines.append(
-                f"- `{warning.severity}` `{warning.code}` -- {warning.message}"
-            )
-        lines.append("")
-    else:
-        lines.append("No deterministic warnings fired.")
-        lines.append("")
-
-    if report.suggested_labels:
-        joined = ", ".join(f"`{label}`" for label in report.suggested_labels)
-        lines.append(f"**Suggested labels:** {joined}")
-        lines.append("")
-
-    if report.file_categories:
-        risky = sum(1 for row in report.file_categories if row.risky)
-        lines.append(
-            f"**File categories:** {len(report.file_categories)} files "
-            f"({risky} risky)"
-        )
-        lines.append("")
-
-    return "\n".join(lines).rstrip() + "\n"
+    return report.model_copy(update={"warnings": list(warnings) + list(report.warnings)})
 
 
 def _emit_summary(report: ReviewabilityReport) -> None:
@@ -386,9 +312,7 @@ def _emit_summary(report: ReviewabilityReport) -> None:
             # Failing to write the summary is non-fatal: the workflow
             # log already has the same content. Surface a single line
             # so an operator can debug it without breaking the run.
-            sys.stderr.write(
-                f"{_PROG}: could not write GITHUB_STEP_SUMMARY: {exc}\n"
-            )
+            sys.stderr.write(f"{_PROG}: could not write GITHUB_STEP_SUMMARY: {exc}\n")
 
 
 # --- fail-on ---------------------------------------------------------
@@ -407,9 +331,7 @@ def exit_code_for_fail_on(fail_on: str, verdict: Reviewability) -> int:
     if fail_on == "never":
         return _EXIT_OK
     if fail_on not in _VERDICT_RANK:
-        raise RuntimeError(
-            f"fail-on must be one of {_FAIL_ON_VALUES}; got {fail_on!r}"
-        )
+        raise RuntimeError(f"fail-on must be one of {_FAIL_ON_VALUES}; got {fail_on!r}")
     threshold = _VERDICT_RANK[fail_on]  # type: ignore[index]
     return _EXIT_FAIL_ON if _VERDICT_RANK[verdict] >= threshold else _EXIT_OK
 
@@ -434,12 +356,10 @@ def main(argv: list[str] | None = None) -> int:
     try:
         engine_input = _read_engine_input(Path(args.input))
         payload = engine_input.model_dump(mode="json")
-        payload, config_warnings, resolved_path, config_mode = (
-            _merge_loaded_config(
-                payload,
-                workspace=args.workspace,
-                config_file=args.config_file,
-            )
+        payload, config_warnings, resolved_path, config_mode = _merge_loaded_config(
+            payload,
+            workspace=args.workspace,
+            config_file=args.config_file,
         )
         engine_input = _validated_engine_input(payload)
     except RuntimeError as exc:
@@ -450,9 +370,7 @@ def main(argv: list[str] | None = None) -> int:
     report = _prepend_config_warnings(report, config_warnings)
 
     if args.config_file != _DEFAULT_CONFIG_FILENAME or resolved_path.exists():
-        sys.stderr.write(
-            f"{_PROG}: loaded config from {resolved_path}\n"
-        )
+        sys.stderr.write(f"{_PROG}: loaded config from {resolved_path}\n")
 
     decision = coexistence.decide(
         action_mode=args.mode,

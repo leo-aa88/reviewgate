@@ -4,7 +4,7 @@ Locks the \u00a710.4 formula and the \u00a710.3 threshold ladder:
 
 * ``raw_loc_changed = additions + deletions``
 * ``excluded_loc_changed = sum(changes for files marked not human-authored)``
-* ``human_loc_changed = max(0, raw - excluded)``  *(\u00a710.4 example: 4200 raw, 350 human)*
+* ``human_loc_changed = max(0, raw - excluded)``  *(\u00a710.4 example: 4200 raw, 350 post-exclusion)*
 * WARN warnings for ``files_changed`` and ``human_loc_changed`` use
   ``severity="medium"``; FAIL warnings use ``severity="high"``.
 * Same warning code is reused across tiers (so \u00a713.9 ``too-large``
@@ -55,10 +55,10 @@ def _row(
 
 
 def test_compute_size_stats_matches_design_doc_example() -> None:
-    """Lock the \u00a710.4 example: 4200 raw, ~3850 excluded, ~350 human.
+    """Lock the \u00a710.4 example: 4200 raw, ~3850 excluded, ~350 post-exclusion.
 
     The exact split here uses one big lockfile (3850 excluded changes)
-    so the human-LOC formula yields 350, matching the documented case.
+    so the ``human_loc_changed`` formula yields 350, matching the documented case.
     """
 
     files = [
@@ -169,9 +169,7 @@ def test_files_changed_warning_severity_tiers(
 ) -> None:
     """\u00a710.3 inclusive thresholds: at-threshold counts trigger the tier."""
 
-    files = [
-        _row(f"f{i}.py", changes=1, human_authored=True) for i in range(files_changed)
-    ]
+    files = [_row(f"f{i}.py", changes=1, human_authored=True) for i in range(files_changed)]
     stats = compute_size_stats(additions=files_changed, deletions=0, file_categories=files)
     warnings = size_warnings(
         stats,
@@ -222,9 +220,7 @@ def test_human_loc_warning_severity_tiers(
     """\u00a710.3 thresholds map onto severity exactly as documented."""
 
     files = [_row("a.py", changes=human_loc, human_authored=True)]
-    stats = compute_size_stats(
-        additions=human_loc, deletions=0, file_categories=files
-    )
+    stats = compute_size_stats(additions=human_loc, deletions=0, file_categories=files)
     warnings = size_warnings(
         stats,
         warn_files_changed=10_000,
@@ -273,8 +269,7 @@ def test_human_loc_uses_human_not_raw_per_design_note() -> None:
         fail_human_loc_changed=2_500,
     )
     assert warnings == [], (
-        "human_loc=350 stays below WARN; raw_loc=4200 must not bypass "
-        "the human-LOC severity gate"
+        "human_loc=350 stays below WARN; raw_loc=4200 must not bypass the human-LOC severity gate"
     )
 
 

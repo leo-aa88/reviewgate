@@ -242,9 +242,7 @@ def test_malformed_reviewgate_yml_surfaces_config_warning(
     )
     assert code == 0
     report = json.loads(capsys.readouterr().out)
-    config_warnings = [
-        w for w in report["warnings"] if w["code"] == CONFIG_WARNING_CODE
-    ]
+    config_warnings = [w for w in report["warnings"] if w["code"] == CONFIG_WARNING_CODE]
     assert len(config_warnings) == 1
     assert config_warnings[0]["severity"] == "low"
 
@@ -255,12 +253,7 @@ def test_well_formed_reviewgate_yml_loads_without_warning(
     """A valid `.reviewgate.yml` must not emit ``config_invalid``."""
 
     (tmp_path / ".reviewgate.yml").write_text(
-        "version: 1\n"
-        "thresholds:\n"
-        "  warn:\n"
-        "    files_changed: 5\n"
-        "  fail:\n"
-        "    files_changed: 10\n",
+        "version: 1\nthresholds:\n  warn:\n    files_changed: 5\n  fail:\n    files_changed: 10\n",
         encoding="utf-8",
     )
     payload_path = _write(_PASS_INPUT, tmp_path / "engine.json")
@@ -284,9 +277,7 @@ def test_absolute_config_file_overrides_workspace(
 
     config_dir = tmp_path / "alt"
     config_dir.mkdir()
-    (config_dir / "config.yml").write_text(
-        "version: 1\n", encoding="utf-8"
-    )
+    (config_dir / "config.yml").write_text("version: 1\n", encoding="utf-8")
     payload_path = _write(_PASS_INPUT, tmp_path / "engine.json")
     code = run_core.main(
         [
@@ -538,9 +529,7 @@ def test_auto_mode_with_default_config_stays_quiet(
     monkeypatch.delenv("GITHUB_TOKEN", raising=False)
 
     payload_path = _write(_PASS_INPUT, tmp_path / "engine.json")
-    code = run_core.main(
-        ["--input", str(payload_path), "--workspace", str(tmp_path)]
-    )
+    code = run_core.main(["--input", str(payload_path), "--workspace", str(tmp_path)])
     assert code == 0
     captured = capsys.readouterr()
     assert "coexistence -- Action `mode: auto`" in captured.err
@@ -732,6 +721,32 @@ def test_render_summary_includes_warning_code_and_severity() -> None:
     rendered = run_core.render_summary(report)
     assert "## ReviewGate" in rendered
     assert "FAIL" in rendered
+    assert run_core._SUMMARY_STAT_LABEL_HUMAN_LOC in rendered
+    assert "Human-authored LOC" not in rendered
     for warning in report.warnings:
         assert warning.code in rendered
         assert warning.severity in rendered
+    assert "pr_author_kind" in report.stats
+    assert "human collaborator" in rendered
+
+
+def test_render_summary_includes_dependency_automation_bullets() -> None:
+    """§10.4.1 stats keys surface in the Markdown summary for operators."""
+
+    from reviewgate.core.schemas import ReviewabilityReport
+
+    report = ReviewabilityReport(
+        reviewability="PASS",
+        stats={
+            "files_changed": 1,
+            "raw_loc_changed": 2,
+            "human_loc_changed": 0,
+            "pr_author_kind": "dependency_automation",
+            "pr_author_login": "dependabot[bot]",
+            "dependency_automation_manifest_only": True,
+        },
+    )
+    rendered = run_core.render_summary(report)
+    assert "dependabot[bot]" in rendered
+    assert "dependency_automation" in rendered
+    assert "Manifest-only dependency automation" in rendered

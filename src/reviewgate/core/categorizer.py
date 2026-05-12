@@ -16,8 +16,11 @@ Behaviour summary (\u00a710.5 + \u00a710.6 + \u00a710.4):
   ``risky_paths`` list.
 * ``human_authored`` is ``False`` when a file is classified as
   ``generated``, ``lockfile``, ``snapshot``, ``vendored``, or ``minified``
-  per the \u00a710.4 exclusion rule; \u00a710 (#10) sums these into total
-  human-authored LOC.
+  per the \u00a710.4 exclusion rule; \u00a710 (#10) sums those rows'
+  ``changes`` into ``excluded_loc_changed``. Dependency manifest lines are
+  still attributed to ``human_authored=True`` here; the engine applies a
+  separate dependency-automation override for known bot authors (see
+  :mod:`reviewgate.core.automation_pr`).
 * Pure: no I/O, no GitHub or LLM dependency. The categorizer can be
   called from the CLI, the GitHub Action, and the hosted App.
 
@@ -105,33 +108,89 @@ _CONFIG_BASENAMES: Final[frozenset[str]] = frozenset(
 )
 _ASSET_EXTENSIONS: Final[frozenset[str]] = frozenset(
     {
-        ".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".ico", ".bmp",
-        ".woff", ".woff2", ".ttf", ".otf", ".eot",
-        ".mp3", ".mp4", ".wav", ".webm", ".mov", ".m4a",
+        ".png",
+        ".jpg",
+        ".jpeg",
+        ".gif",
+        ".svg",
+        ".webp",
+        ".ico",
+        ".bmp",
+        ".woff",
+        ".woff2",
+        ".ttf",
+        ".otf",
+        ".eot",
+        ".mp3",
+        ".mp4",
+        ".wav",
+        ".webm",
+        ".mov",
+        ".m4a",
         ".pdf",
     },
 )
 _SOURCE_EXTENSIONS: Final[frozenset[str]] = frozenset(
     {
-        ".py", ".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs",
-        ".go", ".rs", ".java", ".kt", ".swift",
-        ".cpp", ".cc", ".cxx", ".c", ".h", ".hpp", ".hh",
-        ".cs", ".rb", ".php", ".scala", ".clj", ".cljs",
-        ".ex", ".exs", ".elm", ".dart",
-        ".lua", ".r", ".pl", ".pm",
-        ".m", ".mm",
-        ".sh", ".bash", ".zsh", ".ps1",
-        ".html", ".htm", ".css", ".scss", ".sass", ".less",
-        ".vue", ".svelte", ".sol",
+        ".py",
+        ".js",
+        ".jsx",
+        ".ts",
+        ".tsx",
+        ".mjs",
+        ".cjs",
+        ".go",
+        ".rs",
+        ".java",
+        ".kt",
+        ".swift",
+        ".cpp",
+        ".cc",
+        ".cxx",
+        ".c",
+        ".h",
+        ".hpp",
+        ".hh",
+        ".cs",
+        ".rb",
+        ".php",
+        ".scala",
+        ".clj",
+        ".cljs",
+        ".ex",
+        ".exs",
+        ".elm",
+        ".dart",
+        ".lua",
+        ".r",
+        ".pl",
+        ".pm",
+        ".m",
+        ".mm",
+        ".sh",
+        ".bash",
+        ".zsh",
+        ".ps1",
+        ".html",
+        ".htm",
+        ".css",
+        ".scss",
+        ".sass",
+        ".less",
+        ".vue",
+        ".svelte",
+        ".sol",
         ".sql",
-        ".graphql", ".proto",
+        ".graphql",
+        ".proto",
     },
 )
 
 # --- \u00a710.4 exclusion rule ---------------------------------------------
 #
-# Any file carrying one of these categories is treated as not
-# human-authored, so #10 will subtract its LOC from the total.
+# Any file carrying one of these categories is treated as not counting
+# toward ``human_loc_changed`` (see :func:`reviewgate.core.size.compute_size_stats`),
+# so manifest and bulk churn are subtracted from the raw PR totals.
 
 _NON_HUMAN_AUTHORED_CATEGORIES: Final[frozenset[FileCategory]] = frozenset(
     {"lockfile", "generated", "snapshot", "vendored", "minified"},
@@ -218,6 +277,22 @@ class Categorizer:
         (``"unknown"`` if no rule matched), the \u00a710.6 ``risky`` boolean
         (computed against this instance's ``risky_patterns``), and the
         \u00a710.4 ``human_authored`` boolean.
+
+        Examples:
+            A root ``requirements.txt`` receives category ``dependency`` and
+            ``human_authored`` is ``True`` (manifest lines are not in the
+            §10.4 bulk-exclusion set). Known dependency bots still get a
+            manifest-only size adjustment in :mod:`reviewgate.core.automation_pr`.
+
+            ``src/app.py`` receives ``source`` (and possibly ``test``) and
+            ``human_authored`` is ``True`` unless a non-human category such as
+            ``generated`` is also present.
+
+        Args:
+            file: One PR file row (\u00a710.1) including ``changes``.
+
+        Returns:
+            A fully populated :class:`FileCategoryRow` for this path.
         """
 
         filename = file.filename
@@ -226,9 +301,7 @@ class Categorizer:
             categories = ["unknown"]
 
         risky = self._risky.matches(filename)
-        human_authored = not any(
-            cat in _NON_HUMAN_AUTHORED_CATEGORIES for cat in categories
-        )
+        human_authored = not any(cat in _NON_HUMAN_AUTHORED_CATEGORIES for cat in categories)
         return FileCategoryRow(
             filename=filename,
             categories=categories,

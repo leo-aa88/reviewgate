@@ -20,12 +20,17 @@ Public API surface (re-exported from this package root):
   :class:`ReviewabilityReport`, :class:`Reviewability`,
   :class:`WarningSeverity`, :class:`FileCategory`, etc.
 
-Anything not in :data:`__all__` below is internal and may move
-without a deprecation cycle.
+Subpackages such as :mod:`reviewgate.core.automation_pr` that **export
+symbols listed in** :data:`__all__` at the package root are part of the
+stable consumer surface (for example :data:`PrAuthorKind` for typed
+``stats["pr_author_kind"]`` parsing).
+
+Anything else not re-exported below may move without a deprecation cycle.
 """
 
 from . import (
     aggregate,
+    automation_pr,
     categorizer,
     cli,
     config,
@@ -41,6 +46,16 @@ from . import (
     size,
 )
 from .aggregate import baseline_reviewability
+from .automation_pr import (
+    AUTOMATION_STATS_KEYS,
+    KNOWN_CODING_AGENT_AUTOMATION_LOGINS,
+    KNOWN_DEPENDENCY_AUTOMATION_LOGINS,
+    PrAuthorKind,
+    classify_pr_author_login,
+    finalize_size_stats_for_pr_author,
+    is_known_dependency_automation_login,
+    is_manifest_only_dependency_automation_pr,
+)
 from .categorizer import Categorizer, categorize_changed_files
 from .config import (
     ConfigLoadResult,
@@ -72,6 +87,7 @@ from .schemas import (
 )
 
 __all__ = [
+    "AUTOMATION_STATS_KEYS",
     "ChangedFile",
     "ConfigLoadResult",
     "ConfigMode",
@@ -80,7 +96,10 @@ __all__ = [
     "FileCategory",
     "FileCategoryRow",
     "FileStatus",
+    "KNOWN_CODING_AGENT_AUTOMATION_LOGINS",
+    "KNOWN_DEPENDENCY_AUTOMATION_LOGINS",
     "PRRecord",
+    "PrAuthorKind",
     "Reviewability",
     "ReviewGateConfig",
     "ReviewabilityReport",
@@ -88,10 +107,15 @@ __all__ = [
     "StatusFailOn",
     "WarningSeverity",
     "Categorizer",
+    "classify_pr_author_login",
+    "finalize_size_stats_for_pr_author",
+    "is_known_dependency_automation_login",
+    "is_manifest_only_dependency_automation_pr",
     "PathMatcher",
     "SizeStats",
     "aggregate",
     "analyze",
+    "automation_pr",
     "baseline_reviewability",
     "categorize_changed_files",
     "categorizer",

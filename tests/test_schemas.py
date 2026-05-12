@@ -46,7 +46,9 @@ def _minimal_pr() -> _MinimalPRFields:
 
 def _assert_extra_forbidden(exc: ValidationError, *, loc: tuple[str | int, ...]) -> None:
     errors = exc.errors()
-    assert any(e.get("type") == "extra_forbidden" and tuple(e.get("loc", ())) == loc for e in errors), errors
+    assert any(
+        e.get("type") == "extra_forbidden" and tuple(e.get("loc", ())) == loc for e in errors
+    ), errors
 
 
 def test_engine_input_minimal_valid() -> None:
@@ -313,7 +315,8 @@ def test_design_doc_section_10_12_warning_example_validates() -> None:
         "code": "large_human_diff",
         "severity": "medium",
         "message": (
-            "This PR changes 1,200 human-authored lines, above the warning threshold of 800."
+            "This PR changes 1,200 lines after §10.4 exclusions (human_loc_changed), "
+            "above the warning threshold of 800."
         ),
         "evidence": {"human_loc_changed": 1200, "threshold": 800},
     }

@@ -4,11 +4,12 @@ Implements two responsibilities:
 
 1. **Size statistics** -- the \u00a710.4 formula
    ``human_loc_changed = raw_loc_changed - excluded_loc_changed`` where
-   excluded LOC is the sum of changes on files the categorizer marked
-   as not human-authored (\u00a710.4 list: lockfile, generated, snapshot,
-   vendored, minified). The result is exposed verbatim in
-   :attr:`ReviewabilityReport.stats` so the report shows both raw and
-   human numbers per the \u00a710.4 example.
+   excluded LOC is the sum of ``changes`` on rows the categorizer marked
+   with ``human_authored=False`` (lockfiles, generated paths, snapshots,
+   vendored trees, minified assets). The engine may further adjust
+   ``human_loc_changed`` for known dependency automation authors (see
+   :mod:`reviewgate.core.automation_pr`). Results are exposed verbatim in
+   :attr:`ReviewabilityReport.stats`.
 
 2. **Size warnings** -- map :class:`SizeStats` to \u00a710.12 warnings using
    the \u00a710.3 thresholds (``warn.files_changed`` / ``fail.files_changed``
@@ -61,16 +62,18 @@ class SizeStats(StrictModel):
     excluded_loc_changed: int = Field(
         ge=0,
         description=(
-            "Sum of ``changes`` for files marked not human-authored by "
-            "the categorizer (\u00a710.4 exclusion: lockfile, generated, "
-            "snapshot, vendored, minified)."
+            "Sum of ``changes`` for rows with ``human_authored=False`` from "
+            "the categorizer (\u00a710.4: lockfile, generated, snapshot, "
+            "vendored, minified)."
         ),
     )
     human_loc_changed: int = Field(
         ge=0,
         description=(
-            "``raw_loc_changed - excluded_loc_changed`` per \u00a710.4. Used "
-            "as the size-severity input by \u00a710.3 instead of raw LOC."
+            "Remaining changed-line count after \u00a710.4 exclusions "
+            "(``raw_loc_changed - excluded_loc_changed``). JSON field name "
+            "is unchanged; used as the size-severity input by \u00a710.3 "
+            "instead of raw LOC."
         ),
     )
     files_changed: int = Field(
@@ -95,6 +98,10 @@ def compute_size_stats(
 ) -> SizeStats:
     """Build :class:`SizeStats` from a PR record and categorizer output.
 
+    Manifest-only dependency PRs from known bots are handled in
+    :func:`reviewgate.core.automation_pr.finalize_size_stats_for_pr_author`
+    after this baseline is computed.
+
     Args:
         additions: ``EngineInput.pr.additions``.
         deletions: ``EngineInput.pr.deletions``.
@@ -107,6 +114,11 @@ def compute_size_stats(
         to zero (defensive guard against degenerate inputs where the
         categorizer's per-file ``changes`` totals exceed
         ``additions + deletions``).
+
+    Example:
+        ``additions + deletions == 4200`` with ``package-lock.json`` (3850
+        excluded) and ``src/utils.py`` (350 human) yields
+        ``human_loc_changed == 350``.
     """
 
     rows = list(file_categories)
@@ -207,10 +219,7 @@ def _threshold_warning(
     else:
         return None
 
-    message = (
-        f"PR exceeds {tier} {dimension} threshold: {actual} {unit} "
-        f"(threshold {threshold})."
-    )
+    message = f"PR exceeds {tier} {dimension} threshold: {actual} {unit} (threshold {threshold})."
     return EngineWarning(
         code=code,
         severity=severity,

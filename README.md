@@ -245,7 +245,7 @@ module ties back to a §-numbered section of `docs/DESIGN.md`:
 | [`config.py`](src/reviewgate/core/config.py) | `.reviewgate.yml` schema, defaults, malformed-config recovery | §12 |
 | [`paths.py`](src/reviewgate/core/paths.py) | Pure gitignore-style glob matcher | §10.6–§10.9 |
 | [`categorizer.py`](src/reviewgate/core/categorizer.py) | Per-file categorization across 16 closed labels | §10.5 |
-| [`size.py`](src/reviewgate/core/size.py) | Raw + human-authored LOC and size warnings | §10.3, §10.4 |
+| [`size.py`](src/reviewgate/core/size.py) | Raw LOC, ``human_loc_changed``, size warnings; [`automation_pr.py`](src/reviewgate/core/automation_pr.py) §10.4.1–§10.4.2 (``pr_author_kind``) | §10.3, §10.4 |
 | [`ignored_paths.py`](src/reviewgate/core/ignored_paths.py) | Applies `ignored_paths` before categorisation | §12 |
 | [`count_warnings.py`](src/reviewgate/core/count_warnings.py) | Warn-tier risky / dependency / config file counts | §10.3 |
 | [`tests_coverage.py`](src/reviewgate/core/tests_coverage.py) | Source changes without test files (bounded heuristic) | §9, §13.9 |

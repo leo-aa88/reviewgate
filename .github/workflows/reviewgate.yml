@@ -12,7 +12,7 @@ jobs:
       contents: read
       pull-requests: write
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       # Pre-release docs use @main until the first public tag is cut.
       # After v0.1.0, pin a release tag instead.
       - uses: leo-aa88/reviewgate@main

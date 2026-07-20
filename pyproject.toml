@@ -42,7 +42,7 @@ classifiers = [
 ]
 
 dependencies = [
-    "pydantic>=2.7",
+    "pydantic>=2.13.4",
     "PyYAML>=6.0",
     # `pathspec` is a pure-Python (no I/O, no native deps) gitignore-style
     # glob matcher used by `reviewgate.core.paths` for §10.6-§10.9 file-pattern

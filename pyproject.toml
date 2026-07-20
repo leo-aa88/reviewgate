@@ -84,7 +84,7 @@ dev = [
 # ``reviewgate`` core wheels stay free of database drivers (see purity tests).
 app = [
     "SQLAlchemy>=2.0.30",
-    "alembic>=1.13.2",
+    "alembic>=1.18.5",
     "psycopg[binary]>=3.1.18",
     "pydantic-settings>=2.2.0",
     "redis>=5.0.0",

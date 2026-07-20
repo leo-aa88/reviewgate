@@ -49,7 +49,7 @@ dependencies = [
     # matching. Picked over a hand-rolled regex translator so we get
     # battle-tested gitignore semantics for `**`, basename-only patterns
     # (`Dockerfile`), and rooted paths (`vendor/**`).
-    "pathspec>=0.12",
+    "pathspec>=1.1.1",
 ]
 
 [project.urls]

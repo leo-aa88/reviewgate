@@ -72,6 +72,7 @@ def _categorize_one(filename: str) -> FileCategoryRow:
         pytest.param("config/settings.yaml", "config", id="config-yaml"),
         pytest.param(".editorconfig", "config", id="config-editorconfig"),
         pytest.param("Makefile", "config", id="config-makefile"),
+        pytest.param(".env", "config", id="config-dotenv"),
         pytest.param("logo.png", "asset", id="asset-png"),
         pytest.param("fonts/OpenSans.woff2", "asset", id="asset-font"),
     ],

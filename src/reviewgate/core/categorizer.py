@@ -104,6 +104,7 @@ _CONFIG_BASENAMES: Final[frozenset[str]] = frozenset(
         ".dockerignore",
         ".npmrc",
         "Makefile",
+        ".env",
     },
 )
 _ASSET_EXTENSIONS: Final[frozenset[str]] = frozenset(

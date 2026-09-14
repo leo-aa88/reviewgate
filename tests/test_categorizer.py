@@ -376,3 +376,11 @@ def test_dotfiles_without_extension_are_not_misclassified_as_source() -> None:
     row = _categorize_one(".gitignore")
     assert "config" in row.categories
     assert "source" not in row.categories
+
+
+def test_root_dotenv_is_categorized_as_config() -> None:
+    """A bare ``.env`` must use the config basename path."""
+
+    row = _categorize_one(".env")
+    assert "config" in row.categories
+    assert "unknown" not in row.categories

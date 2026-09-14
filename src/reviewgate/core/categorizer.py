@@ -102,6 +102,7 @@ _CONFIG_BASENAMES: Final[frozenset[str]] = frozenset(
         ".prettierrc",
         ".eslintrc",
         ".dockerignore",
+        ".env",
         ".npmrc",
         "Makefile",
     },

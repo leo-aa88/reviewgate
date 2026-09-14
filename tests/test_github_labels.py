@@ -69,6 +69,7 @@ def test_list_issue_label_names_parses_names() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         assert request.method == "GET"
         assert request.url.path.endswith("/issues/9/labels")
+        assert dict(request.url.params) == {"per_page": "100", "page": "1"}
         return httpx.Response(
             200,
             json=[
@@ -87,6 +88,31 @@ def test_list_issue_label_names_parses_names() -> None:
             http_client=client,
         )
     assert names == ["a", "b"]
+
+
+def test_list_issue_label_names_paginates() -> None:
+    pages: list[int] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        page = int(request.url.params["page"])
+        pages.append(page)
+        assert request.url.params["per_page"] == "100"
+        if page == 1:
+            return httpx.Response(200, json=[{"name": f"label-{i}"} for i in range(100)])
+        return httpx.Response(200, json=[{"name": "label-100"}])
+
+    transport = httpx.MockTransport(handler)
+    with httpx.Client(transport=transport) as client:
+        names = list_issue_label_names(
+            _TOKEN,
+            owner="acme",
+            repo="r",
+            issue_number=9,
+            http_client=client,
+        )
+
+    assert pages == [1, 2]
+    assert names == [*(f"label-{i}" for i in range(100)), "label-100"]
 
 
 def test_ensure_reviewgate_labels_exist_creates_on_404() -> None:
@@ -157,6 +183,40 @@ def test_sync_removes_managed_stale_and_preserves_user_labels() -> None:
     assert any(c[0] == "GET" for c in calls)
     assert any(c[0] == "DELETE" for c in calls)
     assert any(c[0] == "POST" for c in calls)
+
+
+def test_sync_removes_managed_stale_label_from_second_page() -> None:
+    deleted: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "GET":
+            page = int(request.url.params["page"])
+            if page == 1:
+                return httpx.Response(
+                    200,
+                    json=[{"name": f"user-label-{i}"} for i in range(100)],
+                )
+            return httpx.Response(200, json=[{"name": "reviewability-warn"}])
+        if request.method == "DELETE":
+            deleted.append(request.url.path)
+            return httpx.Response(204)
+        return httpx.Response(400, json={"message": "unexpected"})
+
+    transport = httpx.MockTransport(handler)
+    with httpx.Client(transport=transport) as client:
+        sync_reviewgate_labels_on_issue(
+            _TOKEN,
+            owner="acme",
+            repo="demo",
+            issue_number=3,
+            desired_labels=[],
+            labels_config=Labels(),
+            http_client=client,
+        )
+
+    assert deleted == [
+        "/repos/acme/demo/issues/3/labels/reviewability-warn",
+    ]
 
 
 def test_ensure_label_create_422_is_treated_as_race() -> None:

@@ -47,6 +47,7 @@ logger = logging.getLogger(__name__)
 
 _GITHUB_API_ORIGIN: Final[str] = "https://api.github.com"
 _DEFAULT_HTTP_TIMEOUT_SECONDS: Final[float] = 30.0
+_ISSUE_LABELS_PER_PAGE: Final[int] = 100
 #: Subtle lavender; GitHub requires six-digit color without ``#``.
 _REVIEWGATE_LABEL_COLOR: Final[str] = "D4C5F9"
 _LABEL_DESCRIPTION: Final[str] = "Managed by ReviewGate (docs/DESIGN.md §13.9)."
@@ -216,53 +217,62 @@ def list_issue_label_names(
     headers = _installation_auth_headers(installation_token)
     owns_client = http_client is None
     client = http_client or httpx.Client(timeout=_DEFAULT_HTTP_TIMEOUT_SECONDS)
+    names: list[str] = []
+    page = 1
     try:
-        try:
-            response = client.get(url, headers=headers)
-        except httpx.HTTPError as exc:
-            logger.warning(
-                "github_list_issue_labels_transport_error",
-                extra={"github_detail": str(exc)},
-            )
-            msg = "HTTP transport error while listing issue labels"
-            raise GitHubRestError(
-                msg,
-                status_code=None,
-                retriable=True,
-                request_id=None,
-            ) from exc
-        _raise_for_github_response(operation="list_issue_labels", response=response)
-        try:
-            parsed: object = response.json()
-        except ValueError as exc:
-            msg = "GitHub issue labels response was not valid JSON"
-            raise GitHubRestError(
-                msg,
-                status_code=response.status_code,
-                retriable=False,
-                request_id=response.headers.get("x-github-request-id"),
-            ) from exc
-        if not isinstance(parsed, list):
-            msg = "GitHub issue labels response JSON was not an array"
-            raise GitHubRestError(
-                msg,
-                status_code=response.status_code,
-                retriable=False,
-                request_id=response.headers.get("x-github-request-id"),
-            )
-        names: list[str] = []
-        for item in parsed:
-            if not isinstance(item, dict):
-                msg = "GitHub issue labels response contained non-object entries"
+        while True:
+            try:
+                response = client.get(
+                    url,
+                    headers=headers,
+                    params={"per_page": _ISSUE_LABELS_PER_PAGE, "page": page},
+                )
+            except httpx.HTTPError as exc:
+                logger.warning(
+                    "github_list_issue_labels_transport_error",
+                    extra={"github_detail": str(exc), "page": page},
+                )
+                msg = "HTTP transport error while listing issue labels"
+                raise GitHubRestError(
+                    msg,
+                    status_code=None,
+                    retriable=True,
+                    request_id=None,
+                ) from exc
+            _raise_for_github_response(operation="list_issue_labels", response=response)
+            try:
+                parsed: object = response.json()
+            except ValueError as exc:
+                msg = "GitHub issue labels response was not valid JSON"
+                raise GitHubRestError(
+                    msg,
+                    status_code=response.status_code,
+                    retriable=False,
+                    request_id=response.headers.get("x-github-request-id"),
+                ) from exc
+            if not isinstance(parsed, list):
+                msg = "GitHub issue labels response JSON was not an array"
                 raise GitHubRestError(
                     msg,
                     status_code=response.status_code,
                     retriable=False,
                     request_id=response.headers.get("x-github-request-id"),
                 )
-            n = item.get("name")
-            if isinstance(n, str) and n.strip():
-                names.append(n.strip())
+            for item in parsed:
+                if not isinstance(item, dict):
+                    msg = "GitHub issue labels response contained non-object entries"
+                    raise GitHubRestError(
+                        msg,
+                        status_code=response.status_code,
+                        retriable=False,
+                        request_id=response.headers.get("x-github-request-id"),
+                    )
+                n = item.get("name")
+                if isinstance(n, str) and n.strip():
+                    names.append(n.strip())
+            if len(parsed) < _ISSUE_LABELS_PER_PAGE:
+                break
+            page += 1
         return names
     finally:
         if owns_client:

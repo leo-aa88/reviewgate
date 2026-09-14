@@ -10,7 +10,10 @@ import pytest
 pytest.importorskip("sqlalchemy")
 
 from reviewgate.app.settings import AppSettings
-from reviewgate.app.webhooks.installation_persist import persist_installation_webhook_payload
+from reviewgate.app.webhooks.installation_persist import (
+    _parse_repository_dict,
+    persist_installation_webhook_payload,
+)
 
 
 @pytest.fixture
@@ -216,4 +219,142 @@ def test_persist_installation_deleted_sets_deleted_at_and_deactivates_repos(
             )
 
     assert session.execute.call_count == 3
+    session.commit.assert_called_once()
+
+
+def test_parse_repository_dict_derives_owner_from_full_name() -> None:
+    """GitHub's minimal repository form has no ``owner`` key (issue #145)."""
+
+    parsed = _parse_repository_dict(
+        {
+            "id": 1296269,
+            "node_id": "R_kgDO",
+            "name": "Hello-World",
+            "full_name": "octocat/Hello-World",
+            "private": False,
+        },
+    )
+
+    assert parsed == (1296269, "octocat", "Hello-World", "octocat/Hello-World", False)
+
+
+def test_parse_repository_dict_prefers_explicit_owner_login() -> None:
+    """An explicit ``owner.login`` still wins over the ``full_name`` prefix."""
+
+    parsed = _parse_repository_dict(
+        {
+            "id": 1,
+            "name": "r",
+            "full_name": "stale/r",
+            "owner": {"login": "org"},
+        },
+    )
+
+    assert parsed == (1, "org", "r", "stale/r", False)
+
+
+def test_parse_repository_dict_rejects_full_name_without_owner_prefix() -> None:
+    """An unusable ``full_name`` and no ``owner`` still raise ``ValueError``."""
+
+    with pytest.raises(ValueError, match="repository.owner.login is required"):
+        _parse_repository_dict({"id": 1, "name": "r", "full_name": "hello"})
+
+
+def test_persist_installation_repositories_added_accepts_minimal_repository(
+    app_settings: AppSettings,
+) -> None:
+    """A real ``installation_repositories`` ``added`` delivery persists the repo.
+
+    Real payloads use the minimal repository form (no ``owner`` key), which
+    previously raised ``ValueError`` and turned the delivery into an HTTP 400
+    without persisting anything (issue #145).
+    """
+
+    fake_engine = object()
+    session = MagicMock()
+    inst_id = uuid.uuid4()
+    first = MagicMock()
+    first.scalar_one.return_value = inst_id
+    second = MagicMock()
+    session.execute.side_effect = [first, second]
+    sm = _session_context(session)
+
+    with patch(
+        "reviewgate.app.webhooks.installation_persist.create_engine_from_settings",
+        return_value=fake_engine,
+    ):
+        with patch(
+            "reviewgate.app.webhooks.installation_persist.create_session_factory",
+            return_value=sm,
+        ):
+            persist_installation_webhook_payload(
+                app_settings,
+                event_name="installation_repositories",
+                action="added",
+                payload={
+                    "action": "added",
+                    "installation": {
+                        "id": 42,
+                        "account": {"login": "octocat", "type": "User"},
+                    },
+                    "repositories_added": [
+                        {
+                            "id": 1296269,
+                            "node_id": "R_kgDO",
+                            "name": "Hello-World",
+                            "full_name": "octocat/Hello-World",
+                            "private": False,
+                        },
+                    ],
+                },
+            )
+
+    assert session.execute.call_count == 2
+    session.commit.assert_called_once()
+
+
+def test_persist_installation_created_persists_minimal_repository(
+    app_settings: AppSettings,
+) -> None:
+    """``installation.created`` no longer skips minimal repository entries."""
+
+    fake_engine = object()
+    session = MagicMock()
+    inst_id = uuid.uuid4()
+    first = MagicMock()
+    first.scalar_one.return_value = inst_id
+    second = MagicMock()
+    session.execute.side_effect = [first, second]
+    sm = _session_context(session)
+
+    with patch(
+        "reviewgate.app.webhooks.installation_persist.create_engine_from_settings",
+        return_value=fake_engine,
+    ):
+        with patch(
+            "reviewgate.app.webhooks.installation_persist.create_session_factory",
+            return_value=sm,
+        ):
+            persist_installation_webhook_payload(
+                app_settings,
+                event_name="installation",
+                action="created",
+                payload={
+                    "action": "created",
+                    "installation": {
+                        "id": 42,
+                        "account": {"login": "org", "type": "Organization"},
+                    },
+                    "repositories": [
+                        {
+                            "id": 7,
+                            "name": "r",
+                            "full_name": "org/r",
+                            "private": True,
+                        },
+                    ],
+                },
+            )
+
+    assert session.execute.call_count == 2
     session.commit.assert_called_once()

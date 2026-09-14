@@ -172,18 +172,25 @@ def _parse_repository_dict(repo: dict[str, Any]) -> tuple[int, str, str, str, bo
     if not isinstance(name, str) or not name.strip():
         msg = "repository.name must be a non-empty string"
         raise ValueError(msg)
+    fn = full_name.strip() if isinstance(full_name, str) else ""
     owner_login = ""
     owner = repo.get("owner")
     if isinstance(owner, dict):
         raw_login = owner.get("login")
         if isinstance(raw_login, str):
             owner_login = raw_login.strip()
+    if not owner_login and fn:
+        # ``installation`` / ``installation_repositories`` deliveries use
+        # GitHub's minimal repository representation, which omits ``owner``
+        # but always carries ``full_name`` (``"owner/name"``). Derive the
+        # owner from it instead of dropping the repository (issue #145).
+        derived_owner, separator, derived_name = fn.partition("/")
+        if separator and derived_owner.strip() and derived_name.strip():
+            owner_login = derived_owner.strip()
     if not owner_login:
         msg = "repository.owner.login is required"
         raise ValueError(msg)
-    if isinstance(full_name, str) and full_name.strip():
-        fn = full_name.strip()
-    else:
+    if not fn:
         fn = f"{owner_login}/{name.strip()}"
     private_val = repo.get("private")
     private = bool(private_val) if isinstance(private_val, bool) else False

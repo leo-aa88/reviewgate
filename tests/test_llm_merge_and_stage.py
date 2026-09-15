@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-from pydantic import SecretStr
+from unittest.mock import patch
 
 import pytest
 
 pytest.importorskip("pydantic")
 
+from pydantic import SecretStr
 from reviewgate.app.analysis.pipeline import PipelineAnalysisArtifacts
 from reviewgate.app.llm.client import LlmCallResult, LlmCallUsage
 from reviewgate.app.llm.merge_report import apply_llm_to_deterministic_report
@@ -17,8 +18,6 @@ from reviewgate.app.settings import AppSettings
 from reviewgate.core.config import Labels, ReviewGateConfig
 from reviewgate.core.report import suggested_labels
 from reviewgate.core.schemas import ChangedFile, PRRecord, ReviewabilityReport
-
-from unittest.mock import patch
 
 
 def test_apply_llm_escalates_pass_to_warn() -> None:

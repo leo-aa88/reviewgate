@@ -64,6 +64,43 @@ def test_complete_reviewability_json_sums_usage_when_repair_succeeds() -> None:
     assert result.usage.output_tokens == 22
 
 
+def test_complete_reviewability_json_keeps_usage_when_repair_also_fails() -> None:
+    """Repair-call tokens are billed and must survive a terminal parse failure (issue #151)."""
+
+    settings = AppSettings(
+        openai_api_key=SecretStr("sk-test"),
+        llm_model="gpt-4o-mini",
+    )
+    bad = MagicMock()
+    bad.raise_for_status = MagicMock()
+    bad.json.return_value = {
+        "choices": [{"message": {"content": "{not-json"}}],
+        "usage": {"prompt_tokens": 1, "completion_tokens": 2},
+    }
+    still_bad = MagicMock()
+    still_bad.raise_for_status = MagicMock()
+    still_bad.json.return_value = {
+        "choices": [{"message": {"content": "still not json"}}],
+        "usage": {"prompt_tokens": 10, "completion_tokens": 20},
+    }
+    mock_client = MagicMock()
+    mock_client.post.side_effect = [bad, still_bad]
+    mock_cm = MagicMock()
+    mock_cm.__enter__.return_value = mock_client
+    mock_cm.__exit__.return_value = None
+
+    with patch("httpx.Client", return_value=mock_cm):
+        result = complete_reviewability_json(
+            settings,
+            system_prompt="sys",
+            user_prompt="user",
+        )
+    assert result.parsed is None
+    assert result.usage is not None
+    assert result.usage.input_tokens == 11
+    assert result.usage.output_tokens == 22
+
+    
 def test_complete_reviewability_json_uses_openai_response() -> None:
     settings = AppSettings(
         openai_api_key=SecretStr("sk-test"),

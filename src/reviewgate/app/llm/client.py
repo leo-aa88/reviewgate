@@ -173,6 +173,8 @@ def complete_reviewability_json(
         if parsed is not None:
             return LlmCallResult(parsed=parsed, usage=usage)
 
+    repair_usage: LlmCallUsage | None = None
+
     if isinstance(content, str) and content.strip():
         repair_messages: list[dict[str, str]] = [
             {"role": "system", "content": _REPAIR_SYSTEM},
@@ -193,4 +195,4 @@ def complete_reviewability_json(
                     usage=_combine_llm_usage(usage, repair_usage),
                 )
 
-    return LlmCallResult(parsed=None, usage=usage)
+    return LlmCallResult(parsed=None, usage=_combine_llm_usage(usage, repair_usage))

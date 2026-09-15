@@ -350,6 +350,7 @@ class WebhookDelivery(Base):
         github_delivery_id: Value of ``X-GitHub-Delivery`` (unique).
         event_name: Webhook event type (for example ``pull_request``).
         processed: Whether the worker finished handling this delivery.
+        claimed_at: Timestamp when the delivery was claimed or last leased.
         created_at: Row creation timestamp (UTC).
     """
 
@@ -367,6 +368,15 @@ class WebhookDelivery(Base):
         Boolean,
         nullable=False,
         server_default=text("false"),
+    )
+    claimed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=text("now()"),
+    )
+    claim_token: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        nullable=True,
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

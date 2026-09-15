@@ -1725,10 +1725,19 @@ create table webhook_deliveries (
   github_delivery_id text not null unique,
   event_name text not null,
   processed boolean not null default false,
+  claimed_at timestamptz not null default now(),
+  claim_token uuid,
   created_at timestamptz not null default now()
 );
 
 create index idx_webhook_deliveries_created_at on webhook_deliveries(created_at);
+
+-- Delivery dedupe and retry state semantics:
+-- 1. claimed: newly inserted or expired lease reclaimed (updates claimed_at, claim_token).
+-- 2. duplicate: processed=true (returns 202 without re-enqueuing).
+-- 3. active: processed=false with active lease held by in-flight worker (surfaces 503 retryable).
+-- 4. lease timeout: configurable via REVIEWGATE_WEBHOOK_DELIVERY_LEASE_SECONDS (default 180s).
+-- 5. release: resets claimed_at to epoch only if matching claim_token and processed=false.
 
 -- Cleanup job requirement:
 -- delete webhook_deliveries older than 30 days daily.

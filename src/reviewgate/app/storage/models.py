@@ -234,10 +234,19 @@ class AnalysisReport(Base):
         report_json: Final merged report JSON (hosted shape).
         deterministic_json: Deterministic engine output JSON.
         llm_used: Whether an LLM stage contributed to ``report_json``.
-        llm_provider: Provider slug when ``llm_used`` is true.
-        input_tokens: LLM input token count when measured.
-        output_tokens: LLM output token count when measured.
-        estimated_cost_usd: Estimated spend in USD for the LLM call.
+        llm_provider: Provider slug whenever the provider billed a call,
+            independent of ``llm_used``: a response that fails to parse
+            (§11.3 fallback) is still charged and still recorded here.
+        input_tokens: LLM input token count when the provider reported
+            usage, independent of ``llm_used``.
+        output_tokens: LLM output token count when the provider reported
+            usage, independent of ``llm_used``.
+        estimated_cost_usd: Estimated spend in USD for the LLM call,
+            populated whenever usage was reported. Cost and token rollups
+            must filter on ``estimated_cost_usd IS NOT NULL`` rather than
+            on ``llm_used``, which only indicates whether the narrative was
+            merged — filtering on ``llm_used`` under-counts exactly the
+            retried and repaired calls that the §11.4 budgets target.
         created_at: Row creation timestamp (UTC).
     """
 

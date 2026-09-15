@@ -1701,6 +1701,14 @@ create table analysis_reports (
 );
 ```
 
+`llm_used` records whether the LLM narrative was merged into the published
+report. It does **not** indicate whether the provider was billed: when the
+response fails to parse (§11.3 fallback), the call is still charged, and
+`llm_provider`, `input_tokens`, `output_tokens` and `estimated_cost_usd` are
+populated while `llm_used` stays false. Cost and token rollups must therefore
+filter on `estimated_cost_usd IS NOT NULL`, not on `llm_used`, or they will
+under-count exactly the retried and repaired calls that §11.4 budgets target.
+
 ### beta_leads
 
 ```sql

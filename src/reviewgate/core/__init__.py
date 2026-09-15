@@ -57,6 +57,14 @@ from .automation_pr import (
     is_manifest_only_dependency_automation_pr,
 )
 from .categorizer import Categorizer, categorize_changed_files
+from .code_comments import (
+    WARN_CODE_COMMENT_HEAVY,
+    WARN_CODE_EXCESSIVE_LINES,
+    WARN_CODE_OVERSIZED_BLOCK,
+    CommentAnalysis,
+    CommentStats,
+    analyze_added_comments,
+)
 from .config import (
     ConfigLoadResult,
     ConfigMode,
@@ -89,6 +97,8 @@ from .schemas import (
 __all__ = [
     "AUTOMATION_STATS_KEYS",
     "ChangedFile",
+    "CommentAnalysis",
+    "CommentStats",
     "ConfigLoadResult",
     "ConfigMode",
     "EngineInput",
@@ -105,6 +115,9 @@ __all__ = [
     "ReviewabilityReport",
     "SplitHint",
     "StatusFailOn",
+    "WARN_CODE_COMMENT_HEAVY",
+    "WARN_CODE_EXCESSIVE_LINES",
+    "WARN_CODE_OVERSIZED_BLOCK",
     "WarningSeverity",
     "Categorizer",
     "classify_pr_author_login",
@@ -117,9 +130,11 @@ __all__ = [
     "analyze",
     "automation_pr",
     "baseline_reviewability",
+    "analyze_added_comments",
     "categorize_changed_files",
     "categorizer",
     "cli",
+    "code_comments",
     "compute_size_stats",
     "config",
     "engine",

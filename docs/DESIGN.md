@@ -874,6 +874,63 @@ def baseline_reviewability(warnings):
     return "PASS"
 ```
 
+## 10.14 Excessive code-comment verbosity (issue #143)
+
+A deterministic heuristic measuring how much commentary a PR **introduces**.
+It reads only the optional unified diff in `ChangedFile.patch` and never
+judges whether a comment is useful, correct, or who or what wrote it.
+
+### Inputs
+
+* `ChangedFile.patch` (added lines only), the categorizer's `source` +
+  `human_authored` verdict, and the `policy.code_comments` config block.
+
+### Warning codes
+
+| Code | Meaning |
+| --- | --- |
+| `oversized_comment_block` | the PR-wide maximum newly-added consecutive full-line comment block reaches a threshold (one warning per PR, filename in evidence) |
+| `excessive_comment_lines` | newly-added full-line comment lines across eligible files reach a threshold |
+| `comment_heavy_diff` | the added comment-to-source ratio reaches a threshold, only at or above `min_added_source_lines` |
+
+Thresholds are inclusive lower bounds, matching §10.3. Severity is `medium`
+at the warn tier and `high` at the fail tier; both feed §10.13 with no
+special verdict path. Each dimension emits at most one warning per PR, the
+same one-warning-per-dimension convention as `size_warnings`.
+
+### Stats keys
+
+When the policy is enabled, `report.stats` gains `comment_lines_added`,
+`code_lines_added`, `largest_comment_block_lines`, and `comment_ratio`
+(rounded to 4 decimals). When disabled, no warnings and no stats keys are
+emitted.
+
+### Hunk entry state
+
+A hunk that does not start at new-file line 0 or 1 begins at a lexical
+position the patch does not establish. It starts unestablished and is
+analyzed only once its own context lines establish a normal code position:
+two consecutive context lines that all scan clean, with no string, block
+comment, or heredoc left open. A single context line is not evidence,
+because a line of docstring prose and a line of code are indistinguishable
+on their own. Until established, a hunk contributes nothing.
+
+### Language coverage
+
+Comment syntax is modeled for Python, Shell, JavaScript, TypeScript
+(without JSX/TSX), and Go. An in-scope source file in any other language is
+not classified, but its added non-blank lines still join the
+`comment_ratio` denominator (never the numerator). Dropping them would
+compute the ratio over the readable files only and manufacture the false
+positive the heuristic exists to avoid.
+
+### Diff parsing
+
+File headers are detected by position: everything before the first `@@` of a
+file's section is preamble. Content-shaped matching for `+++ ` / `--- `
+would misread an added `++i` (emitted as `+++i`) and a deleted shell `-- )`
+(emitted as `--- ) ...`).
+
 ---
 
 ## 11. Hosted LLM Reviewability Layer
@@ -1099,6 +1156,17 @@ policy:
   fail_on_risky_paths_without_context: true
   fail_on_huge_pr: true
   warn_blocks_merge: false
+  code_comments: # issue #143, see §10.14
+    enabled: true # false disables the heuristic and its stats keys
+    warn:
+      max_block_lines: 10
+      max_total_lines: 60
+      max_comment_ratio: 0.45
+    fail:
+      max_block_lines: 25
+      max_total_lines: 150
+      max_comment_ratio: 0.70
+    min_added_source_lines: 20 # ratio stays silent below this sample size
 
 risky_paths:
   - "**/migrations/**"

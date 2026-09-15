@@ -17,6 +17,14 @@ import yaml
 from pydantic import ConfigDict, Field, ValidationError
 
 from reviewgate.core._base import StrictModel
+# Canonical home is comment_policy.py (kept beside code_comments.py so the
+# shared Policy block stays a thin set of toggles); re-exported here so
+# existing `from ...config import CodeCommentPolicy` imports keep working.
+from reviewgate.core.comment_policy import (
+    CodeCommentFailThresholds,
+    CodeCommentPolicy,
+    CodeCommentWarnThresholds,
+)
 from reviewgate.core.schemas import EngineWarning
 
 DEFAULT_CONFIG_PATH: Final[str] = ".reviewgate.yml"
@@ -197,6 +205,13 @@ class Thresholds(StrictModel):
 class Policy(StrictModel):
     """`policy` block (§12)."""
 
+    code_comments: CodeCommentPolicy = Field(
+        default_factory=CodeCommentPolicy,
+        description=(
+            "Excessive code-comment verbosity policy (issue #143); see "
+            ":mod:`reviewgate.core.code_comments`."
+        ),
+    )
     require_linked_issue: bool = Field(
         default=True, description="Treat missing linked issue as a deterministic warning (§10.10)."
     )
@@ -442,6 +457,9 @@ __all__ = [
     "ConfigLoadResult",
     "ConfigMode",
     "ConfigVersion",
+    "CodeCommentFailThresholds",
+    "CodeCommentPolicy",
+    "CodeCommentWarnThresholds",
     "DEFAULT_CONFIG_PATH",
     "DEFAULT_DEPENDENCY_FILES",
     "DEFAULT_GENERATED_PATHS",

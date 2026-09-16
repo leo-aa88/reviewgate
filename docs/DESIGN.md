@@ -909,11 +909,20 @@ emitted.
 
 A hunk that does not start at new-file line 0 or 1 begins at a lexical
 position the patch does not establish. It starts unestablished and is
-analyzed only once its own context lines establish a normal code position:
-two consecutive context lines that all scan clean, with no string, block
-comment, or heredoc left open. A single context line is not evidence,
-because a line of docstring prose and a line of code are indistinguishable
-on their own. Until established, a hunk contributes nothing.
+analyzed only once two consecutive context lines establish a normal code
+position. Each of those lines must satisfy two independent conditions: it
+leaves no multi-line construct open (no string, block comment, or heredoc),
+and it carries a code token. Scanning clean alone is not evidence of a code
+position, because two lines of docstring prose scan clean under a reset
+scanner and would otherwise establish a position that does not exist. Blank
+context lines are neutral: they neither extend the run nor break it, so two
+blanks cannot establish a hunk on no evidence while the `code / blank /
+code` context that `git diff -U3` produces still can. Until established, a
+hunk contributes nothing. The residual case, a hunk beginning two or more
+lines into a multi-line string body whose leading context lines happen to
+carry code tokens, is disclosed in the README rather than claimed to be
+impossible, because a patch does not carry enough information to rule it
+out.
 
 ### Language coverage
 

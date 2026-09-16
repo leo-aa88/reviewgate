@@ -19,8 +19,9 @@ to noisy false positives):
   added lines.
 * A hunk that does not start at new-file line 0 or 1 begins at an unknown
   lexical position, so it starts unestablished. Its own context lines can
-  establish that position (see :data:`_CONTEXT_LINES_TO_ESTABLISH`); until
-  they do, the hunk contributes nothing.
+  establish that position (see :data:`_CONTEXT_LINES_TO_ESTABLISH`), but
+  only on positive evidence: a context line must both scan clean *and*
+  carry a code token. Until they do, the hunk contributes nothing.
 
 Pure: stdlib only, no I/O, no GitHub or LLM dependency (§4.1 boundary).
 """
@@ -37,6 +38,7 @@ from ._comment_lex import (
     _PatchLine,
     _Profile,
     _ScanState,
+    _line_shows_code,
     _scan_line,
     _state_is_clean,
 )
@@ -58,22 +60,41 @@ _HUNK_HEADER: Final[re.Pattern[str]] = re.compile(
 )
 
 _CONTEXT_LINES_TO_ESTABLISH: Final[int] = 2
-"""Consecutive clean context lines needed to establish a mid-file hunk.
+"""Consecutive *evidential* context lines needed to establish a mid-file hunk.
 
 A hunk that does not start at new-file line 0 or 1 can begin inside a
 string, block comment, or heredoc opened above Git's context window, so its
 entry state starts unknown (issue #143: unknown syntax prefers false
 negatives). A *single* context line proves nothing about where it began --
 a line of docstring prose and a line of code are indistinguishable on their
-own -- but a run of them that all scan clean, with no construct left open,
-is positive evidence that the hunk starts at a normal code position.
+own -- so a run of them is required.
+
+Each line in that run must satisfy two independent conditions, because
+scanning clean only proves the scanner made no error, not that its guess
+about where the hunk begins was right:
+
+1. it leaves no multi-line construct open (:func:`_state_is_clean`), and
+2. it carries a code token (:func:`_line_shows_code`).
+
+Condition 2 is what keeps the docstring guarantee honest. Two lines of
+plain prose inside a docstring opened above the context window scan clean
+under a reset scanner, so condition 1 alone would establish a normal code
+position that does not exist and then count every added ``#`` line as
+commentary. Requiring a code token makes that case silent instead.
+
+Blank context lines are **neutral**: they neither add to the run nor break
+it. A blank is not evidence of code, so counting it would let two blank
+lines establish a hunk on no evidence at all; but a blank is not evidence
+against code either, so breaking the run on one would make the heuristic
+silent on the common ``code / blank / code`` context that ``git diff -U3``
+produces.
 
 Two is the smallest run that carries that evidence while keeping the known
-failure case silent: a hunk whose only leading context line sits inside an
-unterminated docstring stays unestablished and contributes nothing. The
-residual risk is a hunk that begins two or more lines into a multi-line
-string body; that is accepted in exchange for the heuristic actually firing
-on edits to existing files, which is the case issue #143 exists to catch.
+failure case silent. The residual risk is a hunk that begins two or more
+lines into a multi-line string body whose two leading context lines happen
+to contain code tokens; that is documented in the README rather than
+claimed to be impossible, because a patch does not carry enough information
+to rule it out.
 """
 
 
@@ -162,7 +183,10 @@ def _tally_patch(patch: str, profile: _Profile) -> _FileTally:
             # Context survives between added lines in the post-image, so it
             # always terminates a block; it is scanned but never tallied.
             current_block = 0
-            if _state_is_clean(state):
+            if kind == _KIND_BLANK:
+                # Neutral: neither evidence for nor against a code position.
+                continue
+            if _state_is_clean(state) and _line_shows_code(item.content):
                 clean_context += 1
                 if clean_context >= _CONTEXT_LINES_TO_ESTABLISH:
                     established = True

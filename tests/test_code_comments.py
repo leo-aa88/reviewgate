@@ -533,6 +533,105 @@ class TestHunkEntryEstablishedFromContext:
         assert result.warnings == []
 
 
+# --- establishment requires a code token (PR #144 review round 5) ---------------
+
+
+class TestEstablishmentRequiresCodeEvidence:
+    def test_docstring_prose_context_never_establishes_entry_state(self) -> None:
+        """Reviewer reproduction: a docstring extended with `#`-prefixed
+        CLI-example prose. Two lines of plain prose scan clean under a reset
+        scanner, so "no construct left open" alone would establish a normal
+        code position that does not exist and count all twelve docstring
+        lines as commentary. Issue #143 and the README both promise
+        docstrings are never counted, so this hunk must stay silent."""
+
+        patch = "\n".join(
+            [
+                "@@ -80,6 +80,20 @@ def build_parser():",
+                "     Example usage:",
+                "     Run the tool with a flag to see it work.",
+                *[f"+# mytool --step-{i} value" for i in range(12)],
+                '     """',
+            ]
+        )
+        result = _analyze([("src/app.py", patch, _row("src/app.py"))])
+        assert result.stats.comment_lines_added == 0
+        assert result.stats.code_lines_added == 0
+        assert result.warnings == []
+
+    def test_code_context_after_prose_still_establishes_entry_state(self) -> None:
+        """The rule is not "any prose means silence": a hunk that shows real
+        code once it reaches it is established from that point on."""
+
+        patch = "\n".join(
+            [
+                "@@ -80,6 +80,10 @@ def build_parser():",
+                "     Example usage:",
+                "     existing = 1",
+                "     other = 2",
+                "+# real comment",
+                "+total = 3",
+            ]
+        )
+        result = _analyze([("src/app.py", patch, _row("src/app.py"))])
+        assert result.stats.comment_lines_added == 1
+        assert result.stats.code_lines_added == 1
+
+    def test_prose_after_code_resets_the_establishment_run(self) -> None:
+        """Every line in the run must carry evidence, not just one of them:
+        a code line followed by prose is back to zero evidential lines."""
+
+        patch = "\n".join(
+            [
+                "@@ -80,6 +80,10 @@ def build_parser():",
+                "     existing = 1",
+                "     and then it does the thing",
+                "+# payload 0",
+                "+# payload 1",
+            ]
+        )
+        result = _analyze([("src/app.py", patch, _row("src/app.py"))])
+        assert result.stats.comment_lines_added == 0
+        assert result.warnings == []
+
+    def test_blank_context_lines_are_not_evidence(self) -> None:
+        """A blank is not evidence of code. Counting it would let two blank
+        context lines establish a hunk on no evidence at all."""
+
+        patch = "\n".join(
+            [
+                "@@ -80,4 +80,7 @@ def build_parser():",
+                " ",
+                " ",
+                "+# payload 0",
+                "+# payload 1",
+            ]
+        )
+        result = _analyze([("src/app.py", patch, _row("src/app.py"))])
+        assert result.stats.comment_lines_added == 0
+        assert result.warnings == []
+
+    def test_blank_context_line_does_not_break_an_established_run(self) -> None:
+        """A blank is not evidence against code either. `git diff -U3`
+        routinely puts one between two real code lines, so breaking the run
+        on a blank would make the heuristic silent on ordinary patches."""
+
+        patch = "\n".join(
+            [
+                "@@ -80,6 +80,23 @@ def handle():",
+                "     existing = 1",
+                " ",
+                "     other = 2",
+                *[f"+# comment line {i}" for i in range(12)],
+                "     tail = 4",
+            ]
+        )
+        result = _analyze([("src/app.py", patch, _row("src/app.py"))])
+        assert result.stats.comment_lines_added == 12
+        assert result.stats.largest_comment_block_lines == 12
+        assert [w.code for w in result.warnings] == [WARN_CODE_OVERSIZED_BLOCK]
+
+
 # --- file header detection by position (PR #144 review round 4) -------------------
 
 

@@ -24,6 +24,7 @@ Pure: stdlib only, no I/O, no GitHub or LLM dependency (§4.1 boundary).
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import Final, Literal
 
@@ -130,6 +131,44 @@ def _state_is_clean(state: _ScanState) -> bool:
         and state.heredoc_delimiter is None
         and not state.in_block_comment
     )
+
+
+_CODE_EVIDENCE: Final[re.Pattern[str]] = re.compile(
+    r"=|->|=>|::|\(|\)|\{|\}|\[|\]|;"
+    r"|\b(?:def|func|struct|interface|package|typedef|namespace"
+    r"|template|defer|raise|yield|async|await|elif|except)\b"
+)
+"""A token that a line of ordinary prose is very unlikely to contain.
+
+Established hunk-entry state (see :data:`_comment_scan._CONTEXT_LINES_TO_ESTABLISH`)
+must rest on positive evidence, not merely on the absence of a scanning
+error. Operators carry almost all of the signal here: assignment, call and
+index syntax, statement terminators, and arrow/scope forms appear in
+essentially every real code line and essentially never in two consecutive
+lines of English prose. The keyword arm covers the common cases an operator
+misses (``def f():`` has one, but ``yield value`` and ``defer close()``
+would not).
+
+Deliberately excluded because they are ordinary English words and would let
+docstring prose masquerade as code: ``if``, ``for``, ``in``, ``as``, ``and``,
+``or``, ``not``, ``end``, ``case``, ``set``, ``do``, ``class``, ``return``,
+``import``, ``let``, ``from``. Their code occurrences almost always carry an
+operator anyway (``if err != nil {``), so nothing is lost.
+"""
+
+
+def _line_shows_code(line: str) -> bool:
+    """True when a post-image line carries positive evidence of code.
+
+    A line of docstring prose and a line of code are indistinguishable to
+    the scanner when the hunk's entry state is unknown, because a construct
+    opened above Git's context window is invisible. This predicate breaks
+    that tie in the conservative direction: a line that shows no code token
+    is not allowed to count as evidence that the hunk starts at a normal
+    code position.
+    """
+
+    return _CODE_EVIDENCE.search(line) is not None
 
 
 @dataclass(frozen=True)
@@ -421,6 +460,7 @@ __all__ = [
     "_PatchLine",
     "_Profile",
     "_ScanState",
+    "_line_shows_code",
     "_profile_for",
     "_scan_line",
     "_state_is_clean",

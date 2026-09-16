@@ -307,10 +307,15 @@ lines are dropped. Unchanged context lines are scanned so lexical state
 never tallied. A hunk that does not start at new-file line 0 or 1
 begins at a lexical position the patch does not establish, so it starts
 unestablished and is analyzed only once its own context lines have
-established a normal code position -- two consecutive context lines that
-all scan clean, with no string, block comment, or heredoc left open. A
-single context line is not enough: on its own, a line of docstring prose
-and a line of code are indistinguishable. Until a hunk is established it
+established a normal code position. A context line counts as evidence
+only when it satisfies two independent conditions: it scans clean,
+leaving no string, block comment, or heredoc open, and it carries a code
+token (an operator such as `=`, `(`, `{`, or `;`, or a keyword such as
+`def` or `yield`). Two such consecutive lines are required. Scanning
+clean on its own is not evidence: it proves the scanner made no error,
+not that its guess about where the hunk begins was right, and two lines
+of docstring prose satisfy it. Blank context lines are neutral: they
+neither add to the run nor break it. Until a hunk is established it
 contributes nothing at all, rather than guessing.
 
 Scope and parsing rules (conservative by design; false negatives are
@@ -341,7 +346,11 @@ preferred):
 * A line counts as a comment only when it is a full-line comment.
   Trailing (inline) comments are not counted in this MVP.
 * Python docstrings are string literals and may be runtime data, so they
-  are never counted as comments.
+  are never counted as comments. One residual case remains: a hunk that
+  begins two or more lines inside a docstring opened above Git's context
+  window, where those leading context lines happen to carry a code token.
+  A patch does not carry enough information to rule that out, so it is
+  documented here rather than claimed to be impossible.
 * A comment block is a run of consecutive added comment lines; blank
   lines, code lines, and pre-existing context lines terminate it.
 * `oversized_comment_block` emits at most one warning per PR, for the

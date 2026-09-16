@@ -39,7 +39,9 @@ should be considered stable but subject to additive change.
   `source` + `human_authored` verdict; a conservative lexical scanner
   recognizes full-line `#` / `//` / `/* */` comments in Python, Shell,
   JavaScript, TypeScript (not JSX/TSX), and Go while never counting
-  string literals (including Python docstrings) or trailing comments.
+  string literals (including Python docstrings) or trailing comments;
+  the one documented exception is a hunk that begins inside a docstring
+  opened above Git's context window (see README).
   Java, C/C++, C#, Rust, and JSX/TSX are skipped until their multiline
   string forms are modeled. Configured via the new `policy.code_comments`
   block (warn/fail thresholds, ratio sample-size guard, `enabled` toggle);
@@ -51,7 +53,13 @@ should be considered stable but subject to additive change.
   and shell quotes/heredocs carry across lines;
   `oversized_comment_block` is one PR-level warning for the maximum
   block (filename in evidence), matching `size_warnings`;
-  `files` / `file_categories` pairs are rejected when filenames differ.
+  `files` / `file_categories` pairs are rejected when filenames differ;
+  unified-diff file headers are detected by position rather than by
+  content; unclassified source languages join the `comment_ratio`
+  denominator instead of vanishing from it; mid-file hunks are analyzed
+  once their own context establishes a normal code position, and that
+  establishment requires a code token on each evidential context line
+  rather than merely a clean scan.
   Hunks that do not start at new-file line 0 or 1 are no longer skipped
   outright: they are analyzed once their own context lines establish a
   normal code position (two consecutive context lines that all scan

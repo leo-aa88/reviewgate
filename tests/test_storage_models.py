@@ -25,7 +25,7 @@ from reviewgate.app.storage.models import Base
 
 _REPO_ROOT: Final[Path] = Path(__file__).resolve().parent.parent
 _ALEMBIC_INI: Final[Path] = _REPO_ROOT / "alembic.ini"
-_EXPECTED_ALEMBIC_HEAD: Final[str] = "16_1_0002"
+_EXPECTED_ALEMBIC_HEAD: Final[str] = "16_1_0003"
 
 _EXPECTED_TABLES: Final[frozenset[str]] = frozenset(
     {
@@ -106,3 +106,13 @@ def test_alembic_head_revision_is_registered() -> None:
     assert heads == [_EXPECTED_ALEMBIC_HEAD], (
         f"expected single Alembic head {_EXPECTED_ALEMBIC_HEAD!r}, got {heads!r}"
     )
+
+
+def test_webhook_deliveries_claimed_at_and_token_columns() -> None:
+    """``webhook_deliveries`` includes ``claimed_at`` and ``claim_token`` columns."""
+
+    table = Base.metadata.tables[models.TABLE_WEBHOOK_DELIVERIES]
+    assert "claimed_at" in table.c
+    assert "claim_token" in table.c
+    assert table.c.claimed_at.nullable is False
+    assert table.c.claim_token.nullable is True

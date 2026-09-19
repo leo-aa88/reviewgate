@@ -31,6 +31,9 @@ should be considered stable but subject to additive change.
 
 ### Added
 
+- **PR-template conformance (issue #170):** opt-in structural checking,
+  required-section and explicitly required-checkbox detection, base-branch
+  template retrieval in Action and hosted App, and warning/label integration.
 - **Excessive code-comment verbosity heuristic (issue #143):** new
   [`code_comments.py`](src/reviewgate/core/code_comments.py) core module
   emits deterministic `oversized_comment_block`, `excessive_comment_lines`,

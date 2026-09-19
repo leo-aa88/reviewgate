@@ -796,6 +796,41 @@ Warn if body is:
 * fewer than 80 meaningful characters
 * mostly template headings without content
 
+### PR-template conformance (issue #170)
+
+Disabled by default. `policy.require_pr_template: true` enables structural
+checks against `.github/PULL_REQUEST_TEMPLATE.md` from the PR's base
+branch. The Action and hosted App perform the GitHub contents API request
+and supply optional `EngineInput.pr_template`; the core remains pure.
+Missing templates and disabled checks are no-ops.
+
+Required Markdown H2 sections must be present and filled beyond unchanged
+template placeholders. Headings containing `optional` are excluded;
+headings inside fenced code and HTML comments do not count. Sections
+containing only checkbox choices can be satisfied without selecting all
+choices. Multiple-template selection is outside the initial scope.
+
+Checkbox enforcement is separately opt-in using
+`policy.require_pr_template_checkboxes: true`; only template checkbox
+lines explicitly annotated `<!-- required -->` are mandatory.
+Ordinary optional checkboxes are never enforced.
+
+A single `pr_template_not_followed` warning reports `missing_sections`,
+`empty_sections` and `unchecked_required`. Severity is medium by default
+or high with `policy.fail_on_pr_template: true`. It participates in the
+existing §10.13 verdict ladder and maps to the configurable
+`labels.pr_template_not_followed` label.
+
+```yaml
+policy:
+  require_pr_template: true
+  fail_on_pr_template: false
+  require_pr_template_checkboxes: false
+```
+
+Non-404 GitHub fetch failures propagate rather than silently treating the
+enabled check as passed.
+
 ### Missing linked issue
 
 Warn if no issue/ticket reference appears in title or body.

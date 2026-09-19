@@ -179,6 +179,7 @@ def _http_get_json(
     *,
     token: str,
     opener: urllib.request.OpenerDirector | None = None,
+    missing_ok: bool = False,
 ) -> tuple[Any, dict[str, str]]:
     """GET ``url`` with the Action's headers and return ``(json, headers)``.
 
@@ -206,6 +207,8 @@ def _http_get_json(
         else:
             response = opener.open(request, timeout=_HTTP_TIMEOUT_SECS)
     except urllib.error.HTTPError as exc:
+        if missing_ok and exc.code == 404:
+            return None, {}
         body = exc.read().decode("utf-8", errors="replace")
         raise RuntimeError(
             f"GitHub API request failed for {url}: HTTP {exc.code} {exc.reason}\n"

@@ -25,6 +25,7 @@ from reviewgate.app.github.auth import fetch_installation_access_token
 from reviewgate.app.github.client import (
     fetch_pull_request,
     fetch_pull_request_files,
+    fetch_repository_text_file_contents,
 )
 from reviewgate.app.settings import AppSettings
 from reviewgate.core.config import Labels, Policy, ReviewGateConfig
@@ -343,10 +344,22 @@ def run_pr_analysis_for_natural_key(
         _github_file_to_changed_file(f, include_patch=False) for f in files_raw
     ]
 
+    template_text: str | None = None
+    if load_result.config.policy.require_pr_template:
+        template_text = fetch_repository_text_file_contents(
+            access.token,
+            owner=ctx.owner,
+            repo=ctx.name,
+            path=".github/PULL_REQUEST_TEMPLATE.md",
+            git_ref=base_ref,
+            http_client=http_client,
+        )
+
     engine_input = EngineInput(
         pr=pr_record,
         files=changed_files,
         config=load_result.config.model_dump(mode="json"),
+        pr_template=template_text,
     )
     artifacts = PipelineAnalysisArtifacts(
         pr=pr_record,

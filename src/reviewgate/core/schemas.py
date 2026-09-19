@@ -75,6 +75,13 @@ class EngineInput(StrictModel):
     files: list[ChangedFile] = Field(
         description="Changed files with optional patches (\u00a710.1)."
     )
+    pr_template: str | None = Field(
+        default=None,
+        description=(
+            "Optional PR template text supplied by an I/O wrapper; "
+            "the deterministic engine never fetches repository files."
+        ),
+    )
     config: dict[str, JsonValue] = Field(
         default_factory=dict,
         description=(

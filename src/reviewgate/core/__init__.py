@@ -40,6 +40,7 @@ from . import (
     mixed_concern,
     paths,
     pr_body,
+    pr_template,
     report,
     risky_paths,
     schemas,
@@ -77,6 +78,7 @@ from .linked_issue import find_issue_references, linked_issue_warning
 from .mixed_concern import mixed_concern_warning
 from .paths import PathMatcher, match_any
 from .pr_body import weak_body_warning
+from .pr_template import WARN_CODE_PR_TEMPLATE_NOT_FOLLOWED, pr_template_warning
 from .report import suggested_labels
 from .risky_paths import risky_paths_warning
 from .size import SizeStats, compute_size_stats, size_warnings
@@ -116,6 +118,7 @@ __all__ = [
     "SplitHint",
     "StatusFailOn",
     "WARN_CODE_COMMENT_HEAVY",
+    "WARN_CODE_PR_TEMPLATE_NOT_FOLLOWED",
     "WARN_CODE_EXCESSIVE_LINES",
     "WARN_CODE_OVERSIZED_BLOCK",
     "WarningSeverity",
@@ -148,6 +151,8 @@ __all__ = [
     "mixed_concern_warning",
     "paths",
     "pr_body",
+    "pr_template",
+    "pr_template_warning",
     "report",
     "risky_paths",
     "risky_paths_warning",

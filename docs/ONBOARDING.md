@@ -120,6 +120,12 @@ risky_paths:
   - "infra/**"
   - "src/payments/**"
 
+# Optional PR-template conformance (issue #170).
+policy:
+  require_pr_template: false
+  fail_on_pr_template: false
+  require_pr_template_checkboxes: false
+
 # §21.3 -- LLM reports are off by default and stay off unless you
 # flip this AND confirm during beta onboarding. Deterministic-only
 # mode never sends PR content off your repository.

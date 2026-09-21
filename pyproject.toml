@@ -83,7 +83,7 @@ dev = [
 # Hosted GitHub App persistence (``docs/DESIGN.md`` §16.1). Kept optional so
 # ``reviewgate`` core wheels stay free of database drivers (see purity tests).
 app = [
-    "SQLAlchemy>=2.0.52",
+    "SQLAlchemy>=2.0.54",
     "alembic>=1.18.5",
     "psycopg[binary]>=3.3.5",
     "pydantic-settings>=2.15.0",

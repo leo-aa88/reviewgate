@@ -119,6 +119,14 @@ class AppSettings(BaseSettings):
         default="gpt-4o-mini",
         description="Default chat model for structured reviewability JSON (§11.4).",
     )
+    webhook_delivery_lease_seconds: int = Field(
+        default=180,
+        ge=1,
+        description=(
+            "Maximum duration in seconds a webhook delivery processing lease "
+            "is held before an in-flight or crashed attempt is considered expired."
+        ),
+    )
     llm_input_usd_per_million: Decimal | None = Field(
         default=None,
         ge=0,

@@ -87,7 +87,7 @@ jobs:
           REVIEWGATE_DATABASE_URL: postgresql+psycopg://reviewgate:reviewgate@127.0.0.1:5432/reviewgate
         run: |
           alembic upgrade head
-          pytest -q tests/test_storage_schema_parity.py
+          pytest -q tests/test_storage_schema_parity.py tests/test_webhooks_dedupe_postgres.py
           alembic downgrade base
           pytest -q tests/test_storage_schema_post_downgrade.py
 

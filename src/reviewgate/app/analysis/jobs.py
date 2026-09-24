@@ -39,6 +39,7 @@ from reviewgate.app.analysis.pipeline import (
     HostRepoContext,
     resolve_host_repo_context,
     run_pr_analysis_for_natural_key,
+    validate_current_analysis_identity,
 )
 from reviewgate.app.llm.stage import maybe_apply_hosted_llm_stage
 from reviewgate.app.analysis.result_cache import (
@@ -158,6 +159,26 @@ def run_pr_analysis_stub(payload: dict[str, object]) -> None:
             if natural is not None and settings.redis_url is not None and not lock_acquired:
                 return
 
+            # Enabled template identities MUST be revalidated before any Redis
+            # cache hit or completed-row deduplication can short-circuit work.
+            # Legacy envelopes and disabled policies keep their old path.
+            if natural is not None and payload.get("reviewgate_template_identity_v2") is True:
+                current_ctx = resolve_host_repo_context(session, natural.repository_id)
+                if current_ctx is None:
+                    logger.warning("template identity preflight: missing repository context")
+                    return
+                try:
+                    with httpx.Client(timeout=30.0) as http_client:
+                        validate_current_analysis_identity(
+                            settings,
+                            natural,
+                            current_ctx,
+                            http_client=http_client,
+                        )
+                except AnalysisPipelineUserError as exc:
+                    logger.info("discard stale analysis job before cache: %s", exc)
+                    return
+
             # §13.6 final-result cache (issue #48): composite key always includes
             # ``head_sha`` via :func:`~reviewgate.app.analysis.cache.analysis_cache_key`.
             if natural is not None and settings.redis_url is not None:
@@ -246,11 +267,7 @@ def run_pr_analysis_stub(payload: dict[str, object]) -> None:
                         final_report = llm_outcome.report
                         final_dump = final_report.model_dump(mode="json")
                         stats_obj = final_dump.get("stats")
-                        stats_map = (
-                            stats_obj
-                            if isinstance(stats_obj, dict)
-                            else {}
-                        )
+                        stats_map = stats_obj if isinstance(stats_obj, dict) else {}
                         update_analysis_pr_size_fields(
                             session,
                             analysis_id,

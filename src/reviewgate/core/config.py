@@ -268,6 +268,21 @@ class Policy(StrictModel):
             ":mod:`reviewgate.core.code_comments`."
         ),
     )
+    require_pr_template: bool = Field(
+        default=False,
+        description="Opt in to deterministic PR-template conformance checks (#170).",
+    )
+    fail_on_pr_template: bool = Field(
+        default=False,
+        description="Emit high rather than medium severity for template violations.",
+    )
+    require_pr_template_checkboxes: bool = Field(
+        default=False,
+        description=(
+            "Check boxes explicitly marked <!-- required --> in the template; "
+            "ordinary optional checkboxes remain unenforced."
+        ),
+    )
     require_linked_issue: bool = Field(
         default=True, description="Treat missing linked issue as a deterministic warning (§10.10)."
     )
@@ -314,6 +329,10 @@ class Labels(StrictModel):
     warn: str = Field(default="reviewability-warn", description="Applied when WARN (§13.9).")
     fail: str = Field(default="reviewability-fail", description="Applied when FAIL (§13.9).")
     too_large: str = Field(default="too-large", description="Applied for size warnings (§13.9).")
+    pr_template_not_followed: str = Field(
+        default="pr-template-not-followed",
+        description="Applied when an opted-in PR-template check finds violations.",
+    )
     missing_context: str = Field(
         default="missing-context", description="Applied for missing rationale (§13.9)."
     )

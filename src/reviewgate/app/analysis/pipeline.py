@@ -19,12 +19,16 @@ from typing import TYPE_CHECKING, Any, Final
 
 import httpx
 
-from reviewgate.app.analysis.config_hash import fetch_reviewgate_yml_and_config_hash
+from reviewgate.app.analysis.config_hash import (
+    config_hash_with_template,
+    fetch_reviewgate_yml_and_config_hash,
+)
 from reviewgate.app.analysis.pr_file_tiers import classify_changed_file_count
 from reviewgate.app.github.auth import fetch_installation_access_token
 from reviewgate.app.github.client import (
     fetch_pull_request,
     fetch_pull_request_files,
+    fetch_repository_text_file_contents,
 )
 from reviewgate.app.settings import AppSettings
 from reviewgate.core.config import Labels, Policy, ReviewGateConfig
@@ -240,6 +244,84 @@ def _fail_fast_report(
     )
 
 
+def validate_current_analysis_identity(
+    settings: AppSettings,
+    key: "AnalysisNaturalKey",
+    ctx: HostRepoContext,
+    *,
+    http_client: httpx.Client,
+) -> None:
+    """Reject a stale queued identity before worker cache or database dedupe.
+
+    Args:
+        settings: GitHub application settings.
+        key: Identity computed at enqueue time.
+        ctx: GitHub repository and installation context.
+        http_client: Shared GitHub HTTP client.
+
+    Raises:
+        AnalysisPipelineUserError: When GitHub inputs differ from the queued key.
+        GitHubRestError: When a GitHub API request fails.
+    """
+    access = fetch_installation_access_token(
+        settings,
+        ctx.github_installation_id,
+        http_client=http_client,
+    )
+    pr_doc = fetch_pull_request(
+        access.token,
+        owner=ctx.owner,
+        repo=ctx.name,
+        pull_number=key.pull_number,
+        http_client=http_client,
+    )
+    head_obj = pr_doc.get("head")
+    head_sha = head_obj.get("sha") if isinstance(head_obj, dict) else None
+    if head_sha != key.head_sha:
+        raise AnalysisPipelineUserError(
+            "PR head SHA changed since enqueue",
+            error_code="head_sha_mismatch",
+        )
+    base_obj = pr_doc.get("base")
+    base_ref = base_obj.get("ref") if isinstance(base_obj, dict) else None
+    if not isinstance(base_ref, str) or not base_ref.strip():
+        raise AnalysisPipelineUserError(
+            "PR base reference missing",
+            error_code="invalid_pr_payload",
+        )
+    base_sha = base_obj.get("sha")
+    revision = (
+        base_sha.strip() if isinstance(base_sha, str) and base_sha.strip() else base_ref.strip()
+    )
+    digest, cfg = fetch_reviewgate_yml_and_config_hash(
+        access.token,
+        owner=ctx.owner,
+        repo=ctx.name,
+        base_ref=revision,
+        http_client=http_client,
+    )
+    template_text: str | None = None
+    if cfg.config.policy.require_pr_template:
+        template_text = fetch_repository_text_file_contents(
+            access.token,
+            owner=ctx.owner,
+            repo=ctx.name,
+            path=".github/PULL_REQUEST_TEMPLATE.md",
+            git_ref=revision,
+            http_client=http_client,
+        )
+    digest = config_hash_with_template(
+        digest,
+        template_text,
+        enabled=cfg.config.policy.require_pr_template,
+    )
+    if digest != key.config_hash:
+        raise AnalysisPipelineUserError(
+            "Base config or PR template changed since enqueue",
+            error_code="config_hash_mismatch",
+        )
+
+
 def run_pr_analysis_for_natural_key(
     settings: AppSettings,
     key: "AnalysisNaturalKey",
@@ -299,13 +381,30 @@ def run_pr_analysis_for_natural_key(
     if not base_ref:
         msg = "pull request JSON missing base ref"
         raise AnalysisPipelineUserError(msg, error_code="invalid_pr_payload")
+    base_sha = base_obj.get("sha") if isinstance(base_obj, dict) else None
+    base_revision = base_sha.strip() if isinstance(base_sha, str) and base_sha.strip() else base_ref
 
     digest, load_result = fetch_reviewgate_yml_and_config_hash(
         access.token,
         owner=ctx.owner,
         repo=ctx.name,
-        base_ref=base_ref,
+        base_ref=base_revision,
         http_client=http_client,
+    )
+    template_text: str | None = None
+    if load_result.config.policy.require_pr_template:
+        template_text = fetch_repository_text_file_contents(
+            access.token,
+            owner=ctx.owner,
+            repo=ctx.name,
+            path=".github/PULL_REQUEST_TEMPLATE.md",
+            git_ref=base_revision,
+            http_client=http_client,
+        )
+    digest = config_hash_with_template(
+        digest,
+        template_text,
+        enabled=load_result.config.policy.require_pr_template,
     )
     if digest != key.config_hash:
         logger.warning(
@@ -339,14 +438,13 @@ def run_pr_analysis_for_natural_key(
         pull_number=key.pull_number,
         http_client=http_client,
     )
-    changed_files = [
-        _github_file_to_changed_file(f, include_patch=False) for f in files_raw
-    ]
+    changed_files = [_github_file_to_changed_file(f, include_patch=False) for f in files_raw]
 
     engine_input = EngineInput(
         pr=pr_record,
         files=changed_files,
         config=load_result.config.model_dump(mode="json"),
+        pr_template=template_text,
     )
     artifacts = PipelineAnalysisArtifacts(
         pr=pr_record,

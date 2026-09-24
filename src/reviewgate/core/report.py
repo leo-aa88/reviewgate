@@ -48,6 +48,7 @@ from .count_warnings import (
 from .linked_issue import WARN_CODE_MISSING_LINKED_ISSUE
 from .mixed_concern import WARN_CODE_MIXED_CONCERN
 from .pr_body import WARN_CODE_WEAK_BODY
+from .pr_template import WARN_CODE_PR_TEMPLATE_NOT_FOLLOWED
 from .risky_paths import WARN_CODE_RISKY_NO_RATIONALE
 from .schemas import EngineWarning, Reviewability
 from .size import (
@@ -75,6 +76,10 @@ _CONCERN_RULES: Final[tuple[tuple[frozenset[str], _LabelGetter], ...]] = (
     (
         frozenset({WARN_CODE_WEAK_BODY, WARN_CODE_MISSING_LINKED_ISSUE}),
         lambda labels: labels.missing_context,
+    ),
+    (
+        frozenset({WARN_CODE_PR_TEMPLATE_NOT_FOLLOWED}),
+        lambda labels: labels.pr_template_not_followed,
     ),
     (
         frozenset({WARN_CODE_RISKY_NO_RATIONALE, WARN_CODE_MANY_RISKY_FILES}),

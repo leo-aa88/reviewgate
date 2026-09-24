@@ -49,7 +49,7 @@ from reviewgate.core.schemas import (
     Reviewability,
     ReviewabilityReport,
 )
-from reviewgate_action import coexistence, post_comment
+from reviewgate_action import coexistence, post_comment, pr_template_fetch
 
 from .summary import PR_AUTHOR_KIND_LABELS, STAT_LABEL_HUMAN_LOC, render_summary
 
@@ -361,6 +361,22 @@ def main(argv: list[str] | None = None) -> int:
             workspace=args.workspace,
             config_file=args.config_file,
         )
+        if (
+            payload["config"]["policy"]["require_pr_template"]
+            and payload.get("pr_template") is None
+        ):
+            token = os.environ.get("GITHUB_TOKEN")
+            repo_slug = os.environ.get("GITHUB_REPOSITORY")
+            if not token or not repo_slug:
+                raise RuntimeError(
+                    "GITHUB_TOKEN and GITHUB_REPOSITORY are required "
+                    "when PR-template checking is enabled"
+                )
+            payload["pr_template"] = pr_template_fetch.fetch_pr_template(
+                token=token,
+                repo_slug=repo_slug,
+                base_ref=engine_input.pr.base_branch,
+            )
         engine_input = _validated_engine_input(payload)
     except RuntimeError as exc:
         print(f"{_PROG}: {exc}", file=sys.stderr)

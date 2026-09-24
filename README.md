@@ -188,6 +188,16 @@ asserts `pyproject.toml` does not pull a forbidden runtime dependency.
 
 ## Configuration
 
+PR-template conformance is opt-in via `policy.require_pr_template: true`.
+The Action and hosted App fetch `.github/PULL_REQUEST_TEMPLATE.md` from
+the PR's base branch. Missing templates are a no-op. The deterministic
+engine checks required H2 sections and unchanged placeholders; headings
+marked optional are skipped. Ordinary checkboxes remain optional.
+Enable `policy.require_pr_template_checkboxes` to enforce only checkbox
+lines explicitly marked `<!-- required -->` in the template.
+`policy.fail_on_pr_template` escalates violations to high severity.
+See `docs/DESIGN.md` §10.10.
+
 Drop a `.reviewgate.yml` at the repo root on the default branch. Every
 key has a documented default; an empty file is valid.
 

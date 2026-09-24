@@ -14,10 +14,17 @@ from typing import Any, Final
 import httpx
 from sqlalchemy import select
 
-from reviewgate.app.analysis.config_hash import fetch_reviewgate_yml_and_config_hash
+from reviewgate.app.analysis.config_hash import (
+    config_hash_with_template,
+    fetch_reviewgate_yml_and_config_hash,
+)
 from reviewgate.app.analysis.pr_metadata_hash import compute_pr_metadata_hash
 from reviewgate.app.github.auth import GitHubAppAuthError, fetch_installation_access_token
-from reviewgate.app.github.client import GitHubRestError
+from reviewgate.app.github.client import (
+    GitHubRestError,
+    fetch_pull_request,
+    fetch_repository_text_file_contents,
+)
 from reviewgate.app.settings import AppSettings
 from reviewgate.app.storage.db import create_engine_from_settings, create_session_factory
 from reviewgate.app.storage.models import Repository
@@ -90,6 +97,12 @@ def _evaluate_pull_request_enqueue_dedupe_inner(
         return False, {}
     if not isinstance(base_ref_raw, str) or not base_ref_raw.strip():
         return False, {}
+    base_sha_raw = base_obj.get("sha")
+    base_revision = (
+        base_sha_raw.strip()
+        if isinstance(base_sha_raw, str) and base_sha_raw.strip()
+        else base_ref_raw.strip()
+    )
 
     repo_obj = payload.get("repository")
     if not isinstance(repo_obj, dict):
@@ -135,13 +148,42 @@ def _evaluate_pull_request_enqueue_dedupe_inner(
             github_installation_id,
             http_client=http_client,
         )
-        config_hash, _cfg = fetch_reviewgate_yml_and_config_hash(
+        # Redeliveries carry an old event snapshot: resolve the current PR
+        # base SHA before constructing this analysis identity.
+        current_pr = fetch_pull_request(
             access.token,
             owner=owner_login.strip(),
             repo=short_name.strip(),
-            base_ref=base_ref_raw.strip(),
+            pull_number=raw_number,
             http_client=http_client,
         )
+        current_base = current_pr.get("base")
+        if isinstance(current_base, dict):
+            current_sha = current_base.get("sha")
+            if isinstance(current_sha, str) and current_sha.strip():
+                base_revision = current_sha.strip()
+        config_hash, cfg_result = fetch_reviewgate_yml_and_config_hash(
+            access.token,
+            owner=owner_login.strip(),
+            repo=short_name.strip(),
+            base_ref=base_revision,
+            http_client=http_client,
+        )
+        template_enabled = cfg_result.config.policy.require_pr_template
+        if template_enabled:
+            template_text = fetch_repository_text_file_contents(
+                access.token,
+                owner=owner_login.strip(),
+                repo=short_name.strip(),
+                path=".github/PULL_REQUEST_TEMPLATE.md",
+                git_ref=base_revision,
+                http_client=http_client,
+            )
+            config_hash = config_hash_with_template(
+                config_hash,
+                template_text,
+                enabled=True,
+            )
 
     key = AnalysisNaturalKey(
         repository_id=repository_uuid,
@@ -162,6 +204,8 @@ def _evaluate_pull_request_enqueue_dedupe_inner(
         "reviewgate_config_hash": key.config_hash,
         "reviewgate_pr_metadata_hash": key.pr_metadata_hash,
     }
+    if template_enabled:
+        fields["reviewgate_template_identity_v2"] = True
     return False, fields
 
 

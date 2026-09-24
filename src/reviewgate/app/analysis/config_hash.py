@@ -4,7 +4,10 @@ Fetches ``.reviewgate.yml`` from the repository at a caller-supplied ref (PR
 ``base`` branch) via the GitHub contents API, then runs
 :func:`reviewgate.core.config.load_config`
 so malformed YAML still yields defaults plus §12 warnings. The digest covers the
-effective :class:`~reviewgate.core.config.ReviewGateConfig` JSON only.
+effective :class:`~reviewgate.core.config.ReviewGateConfig` JSON. When PR
+template enforcement is enabled, :func:`config_hash_with_template` extends
+that identity with the exact template snapshot used by the engine, so cache
+and database deduplication cannot reuse a result for a different template.
 """
 
 from __future__ import annotations
@@ -27,6 +30,36 @@ def compute_config_hash_from_yaml(yaml_text: str | None) -> tuple[str, ConfigLoa
     canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
     digest = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
     return digest, result
+
+
+def config_hash_with_template(
+    config_hash: str,
+    template_text: str | None,
+    *,
+    enabled: bool,
+) -> str:
+    """Bind an enabled template snapshot to the effective config identity.
+
+    Args:
+        config_hash: Digest of effective configuration.
+        template_text: Exact base-revision template, or None when missing.
+        enabled: Whether template enforcement is active.
+
+    Returns:
+        Unchanged config hash when disabled; a deterministic composite otherwise.
+
+    The composite deliberately includes the template text rather than only a
+    boolean policy flag: the template is an authoritative engine input and
+    changing it must produce a different natural/cache identity.
+    """
+    if not enabled:
+        return config_hash
+    canonical = json.dumps(
+        {"config_hash": config_hash, "pr_template": template_text},
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
 def fetch_reviewgate_yml_and_config_hash(

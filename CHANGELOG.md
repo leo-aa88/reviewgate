@@ -49,6 +49,10 @@ should be considered stable but subject to additive change.
 
 ### Added
 
+- **PR-template conformance (issue #170):** opt-in structural checking,
+  required-section and explicitly required-checkbox detection, base-branch
+  template retrieval in Action and hosted App, and warning/label integration.
+
 - **Per-file LOC thresholds (#171):** optional configurable warn/fail limits, per-check path exemptions, deterministic `file_too_large` warnings, and normal verdict/label integration.
 - **Excessive code-comment verbosity heuristic (issue #143):** new
   [`code_comments.py`](src/reviewgate/core/code_comments.py) core module

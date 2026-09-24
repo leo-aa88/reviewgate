@@ -203,6 +203,9 @@ risky_paths:
 policy:
   require_linked_issue: true
   require_human_summary: true
+  require_pr_template: false  # opt in to base-branch template checks
+  fail_on_pr_template: false
+  require_pr_template_checkboxes: false  # only <!-- required --> boxes
   fail_on_risky_paths_without_context: true
   code_comments: # issue #143, comment-verbosity limits
     enabled: true # false disables the heuristic and its stats keys

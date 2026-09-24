@@ -45,7 +45,7 @@ from _pr_review_http import (  # noqa: E402  (sys.path mutation above)
     HTTP_TIMEOUT_SECS,
     MARKER_PREFIX,
     MARKER_SUFFIX,
-    _github_headers,
+    _github_headers as _github_headers,
     _http_json,
     _http_text,
     _marker,
@@ -64,10 +64,10 @@ from _pr_review_payload import (  # noqa: E402
     _decide_event,
     _downgrade_coverage_musts,
     _filter_general_comments,
-    _format_general_section,
-    _format_inline_body,
-    _has_must_severity,
-    _normalize_path,
+    _format_general_section as _format_general_section,
+    _format_inline_body as _format_inline_body,
+    _has_must_severity as _has_must_severity,
+    _normalize_path as _normalize_path,
     _split_inline_comments,
 )
 

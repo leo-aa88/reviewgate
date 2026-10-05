@@ -74,7 +74,7 @@ reviewgate-api = "reviewgate.app.api_cli:main"
 # stubs to keep the deterministic engine free of `Any`-by-import. It is a
 # dev-only dependency; no runtime code imports from `types-PyYAML`.
 dev = [
-    "pytest>=8.0",
+    "pytest>=9.1.1",
     "ruff>=0.16.8",
     "build>=1.6.1",
     "twine>=7.0.0",

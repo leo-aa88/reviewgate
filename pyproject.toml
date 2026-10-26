@@ -75,7 +75,7 @@ reviewgate-api = "reviewgate.app.api_cli:main"
 # dev-only dependency; no runtime code imports from `types-PyYAML`.
 dev = [
     "pytest>=9.1.1",
-    "ruff>=0.16.8",
+    "ruff>=0.17.2",
     "build>=1.6.1",
     "twine>=7.0.0",
     "types-PyYAML>=6.0.12.20260906",
